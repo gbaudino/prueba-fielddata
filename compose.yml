@@ -21,6 +21,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    environment:
+      PYTHONPATH: /app/src
     env_file:
       - .env
     ports:

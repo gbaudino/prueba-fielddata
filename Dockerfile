@@ -25,7 +25,6 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 FROM python:3.14-slim AS runtime
 
 ENV PATH="/app/.venv/bin:$PATH" \
-    PYTHONPATH="/app/src" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
