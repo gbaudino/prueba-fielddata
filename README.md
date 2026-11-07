@@ -36,3 +36,11 @@ make start
 ```
 
 El Swagger de la API estara en `http://localhost:8000/docs`.
+
+## Tests
+
+```bash
+make test
+```
+
+Hoy cubre los health checks (liveness, readiness con la base disponible, caida y colgada) y la configuracion de logs.
