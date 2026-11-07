@@ -31,7 +31,8 @@ services:
       - ./src:/app/src
     command:
       - uvicorn
-      - agroclimate.main:app
+      - --factory
+      - agroclimate.main:create_app
       - --host
       - 0.0.0.0
       - --port

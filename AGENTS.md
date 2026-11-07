@@ -52,6 +52,8 @@ Avoid overengineering. Every abstraction, dependency and architectural decision 
 
 - Follow the existing `src/agroclimate` package structure.
 - Keep the existing separation of API, core configuration and database concerns.
+- Log with structlog using structured key-value events (`logger.info("alert_sent", alert_id=...)`), never f-strings or `print`. Never log secrets or personal data. Logging is configured only in `core/observability.py`.
+- Do no work at import time (reading settings, creating engines, opening connections). Build the application with `create_app()`.
 - Introduce new modules and directories only when they are needed.
 - Use Python 3.14 and modern, idiomatic Python.
 - Follow PEP 8 and the Ruff configuration in `pyproject.toml`.
@@ -102,7 +104,7 @@ PostgreSQL is the source of truth.
 
 - Use SQLAlchemy 2.x APIs.
 - Use asynchronous database access through `AsyncSession`.
-- Use the existing centralized engine and session factory.
+- Create the engine and the session factory in the application lifespan (`create_app`) and obtain sessions through the `get_session` dependency.
 - Use one independent `AsyncSession` per request or background task.
 - Never share an `AsyncSession` between concurrent tasks.
 - Define transaction boundaries explicitly.
@@ -142,6 +144,7 @@ Testing is part of implementation, not an optional final step.
 - Do not use mocks as a substitute for testing actual database constraints, transactions or concurrency.
 - Test success cases, failures and boundary conditions.
 - Keep test fixtures reusable and appropriately scoped.
+- Build the application in tests with `create_app()` and explicit settings. Tests must not depend on a local `.env` file.
 - Do not weaken existing assertions or disable checks merely to make tests pass.
 
 Run the relevant quality checks after making changes.

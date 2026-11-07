@@ -1,14 +1,15 @@
-import logging
-from typing import Annotated
+import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import structlog
+from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from agroclimate.db.session import get_session
+from agroclimate.api.dependencies import SessionDep
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
+
+READINESS_TIMEOUT_SECONDS = 2
 
 router = APIRouter()
 
@@ -19,15 +20,15 @@ async def liveness() -> dict[str, str]:
 
 
 @router.get("/health/ready")
-async def readiness(
-    session: Annotated[AsyncSession, Depends(get_session)],
-) -> dict[str, str]:
+async def readiness(session: SessionDep) -> dict[str, str]:
     try:
-        await session.execute(text("SELECT 1"))
+        async with asyncio.timeout(READINESS_TIMEOUT_SECONDS):
+            await session.execute(text("SELECT 1"))
     except (SQLAlchemyError, OSError) as exc:
+        # TimeoutError is a subclass of OSError.
         logger.warning(
-            "Database readiness check failed: %s",
-            type(exc).__name__,
+            "database_readiness_check_failed",
+            error=type(exc).__name__,
         )
 
         raise HTTPException(

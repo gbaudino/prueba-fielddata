@@ -1,27 +1,20 @@
-from collections.abc import AsyncIterator
-
 from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
 
-from agroclimate.core.config import get_settings
 
-settings = get_settings()
-
-engine = create_async_engine(
-    settings.database_url.get_secret_value(),
-    pool_pre_ping=True,
-)
-
-SessionFactory = async_sessionmaker(
-    bind=engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-)
+def create_engine(database_url: str) -> AsyncEngine:
+    return create_async_engine(database_url, pool_pre_ping=True)
 
 
-async def get_session() -> AsyncIterator[AsyncSession]:
-    async with SessionFactory() as session:
-        yield session
+def create_session_factory(
+    engine: AsyncEngine,
+) -> async_sessionmaker[AsyncSession]:
+    return async_sessionmaker(
+        bind=engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
