@@ -41,3 +41,5 @@ migrate-down:
 migrate-create:
 	@test -n "$(NAME)" || (echo "Usage: make migrate-create NAME=initial_schema" && exit 1)
 	docker compose exec -T --user "$$(id -u):$$(id -g)" api alembic revision --autogenerate -m "$(NAME)"
+	uv run ruff format src/agroclimate/db/migrations/versions
+	uv run ruff check --fix src/agroclimate/db/migrations/versions
