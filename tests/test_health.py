@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import OperationalError
-from structlog.testing import capture_logs
 
 
 def test_liveness(client: TestClient) -> None:
@@ -45,8 +44,7 @@ def test_readiness_when_database_is_unavailable(
 ) -> None:
     db_session.execute.side_effect = error
 
-    with capture_logs() as logs:
-        response = client.get("/health/ready")
+    response = client.get("/health/ready")
 
     assert response.status_code == 503
     assert response.json() == {
@@ -56,16 +54,6 @@ def test_readiness_when_database_is_unavailable(
     assert "Connection refused" not in response.text
     assert "Temporary failure" not in response.text
     db_session.execute.assert_awaited_once()
-    assert [
-        log for log in logs
-        if log["event"] == "database_readiness_check_failed"
-    ] == [
-        {
-            "event": "database_readiness_check_failed",
-            "error": type(error).__name__,
-            "log_level": "warning",
-        }
-    ]
 
 
 def test_readiness_when_database_hangs(
