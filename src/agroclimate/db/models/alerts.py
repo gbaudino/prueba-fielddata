@@ -9,6 +9,7 @@ from sqlalchemy import (
     Index,
     SmallInteger,
     UniqueConstraint,
+    desc,
     func,
     text,
     true,
@@ -24,6 +25,12 @@ class Alert(Base):
     __tablename__ = "alerts"
     __table_args__ = (
         UniqueConstraint("user_id", "field_id", "event_type"),
+        Index(
+            "ix_alerts_user_created_id",
+            "user_id",
+            desc("created_at"),
+            desc("id"),
+        ),
         CheckConstraint("threshold BETWEEN 1 AND 100", name="threshold_range"),
         Index(
             "ix_alerts_active_field_event_type",

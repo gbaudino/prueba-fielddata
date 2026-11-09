@@ -27,7 +27,13 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        engine = create_engine(database_settings.database_url)
+        engine = create_engine(
+            database_settings.database_url,
+            pool_size=database_settings.postgres_pool_size,
+            max_overflow=database_settings.postgres_max_overflow,
+            pool_timeout=database_settings.postgres_pool_timeout_seconds,
+            pool_recycle=database_settings.postgres_pool_recycle_seconds,
+        )
         app.state.session_factory = create_session_factory(engine)
         try:
             yield

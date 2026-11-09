@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
 
@@ -11,6 +11,10 @@ class DatabaseSettings(BaseSettings):
     postgres_password: SecretStr
     postgres_host: str
     postgres_port: int
+    postgres_pool_size: int
+    postgres_max_overflow: int
+    postgres_pool_timeout_seconds: float
+    postgres_pool_recycle_seconds: int
 
     model_config = SettingsConfigDict(
         env_file=".env",
