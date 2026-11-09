@@ -5,21 +5,29 @@ from fastapi import FastAPI
 
 from agroclimate.api.health import router as health_router
 from agroclimate.api.v1.router import router as api_router
-from agroclimate.core.config import Settings, get_settings
+from agroclimate.core.config import AppSettings, get_app_settings
 from agroclimate.core.observability import (
     configure_observability,
     instrument_fastapi,
 )
 from agroclimate.db.session import create_engine, create_session_factory
+from agroclimate.db.settings import (
+    DatabaseSettings,
+    get_database_settings,
+)
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
-    settings = settings or get_settings()
+def create_app(
+    settings: AppSettings | None = None,
+    database_settings: DatabaseSettings | None = None,
+) -> FastAPI:
+    settings = settings or get_app_settings()
+    database_settings = database_settings or get_database_settings()
     configure_observability(settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        engine = create_engine(settings.database_url.get_secret_value())
+        engine = create_engine(database_settings.database_url)
         app.state.session_factory = create_session_factory(engine)
         try:
             yield

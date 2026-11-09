@@ -1,18 +1,12 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class Settings(BaseSettings):
+class AppSettings(BaseSettings):
     app_name: str
-    environment: Literal[
-        "local",
-        "test",
-        "staging",
-        "production",
-    ]
+    environment: Literal["local", "test", "production"]
     log_level: Literal[
         "DEBUG",
         "INFO",
@@ -20,7 +14,6 @@ class Settings(BaseSettings):
         "ERROR",
         "CRITICAL",
     ]
-    database_url: SecretStr
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -30,5 +23,5 @@ class Settings(BaseSettings):
 
 
 @lru_cache
-def get_settings() -> Settings:
-    return Settings()  # type: ignore[call-arg]
+def get_app_settings() -> AppSettings:
+    return AppSettings()  # type: ignore[call-arg]

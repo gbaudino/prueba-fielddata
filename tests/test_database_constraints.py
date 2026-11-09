@@ -1,0 +1,50 @@
+from datetime import date
+
+import pytest
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from agroclimate.db.models import (
+    Alert,
+    EventType,
+    Field,
+    Notification,
+    User,
+)
+
+
+@pytest.mark.parametrize("record_type", ["user", "field"])
+async def test_notifications_restrict_deleting_referenced_external_records(
+    postgres_session: AsyncSession,
+    sample_users: list[User],
+    sample_fields: list[Field],
+    record_type: str,
+) -> None:
+    alert = Alert(
+        user_id=sample_users[0].id,
+        field_id=sample_fields[0].id,
+        event_type=EventType.RAIN,
+        threshold=60,
+    )
+    postgres_session.add(alert)
+    await postgres_session.flush()
+
+    notification = Notification(
+        alert_id=alert.id,
+        user_id=sample_users[0].id,
+        field_id=sample_fields[0].id,
+        event_type=EventType.RAIN,
+        forecast_date=date.today(),
+        probability=75,
+        threshold=60,
+    )
+    postgres_session.add(notification)
+    await postgres_session.flush()
+
+    referenced_record = (
+        sample_users[0] if record_type == "user" else sample_fields[0]
+    )
+    with pytest.raises(IntegrityError):
+        async with postgres_session.begin_nested():
+            await postgres_session.delete(referenced_record)
+            await postgres_session.flush()
