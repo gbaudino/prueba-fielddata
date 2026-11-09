@@ -191,7 +191,7 @@ Use the existing Makefile commands rather than introducing alternative task runn
 
 ## Agent permissions and workflow
 
-The user retains full control of the repository and all Git operations.
+The user reviews and approves every change before it is committed or shared. Agents may stage and commit only after that explicit approval, using Conventional Commits.
 
 ### Allowed operations
 
@@ -251,8 +251,8 @@ After making changes:
 6. Identify outstanding issues, assumptions and unverified behavior.
 7. Present the changes for user review.
 
-Never stage, commit, push or publish changes automatically.
+Never stage, commit, push or publish changes without the user's explicit approval after review.
 
-The user must review and explicitly approve changes before they are committed or shared.
+Once the user has reviewed and approved a set of changes, agents may commit them.
 
 Never claim tests, builds or validations passed unless they were actually executed.
