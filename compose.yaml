@@ -23,6 +23,8 @@ services:
       dockerfile: Dockerfile
     environment:
       PYTHONPATH: /app/src
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
     env_file:
       - .env
     ports:

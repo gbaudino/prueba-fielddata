@@ -1,4 +1,4 @@
-.PHONY: sync check fix test coverage build start down restart \
+.PHONY: sync check fix test coverage build start down restart db-init \
 		migrate-up migrate-down migrate-create
 
 sync:
@@ -23,14 +23,18 @@ coverage:
 build:
 	docker compose build
 
-start: build
-	docker compose up -d
+start: build db-init
+	docker compose up -d api
 
 down:
 	docker compose down
 
 restart: build
 	docker compose up -d --force-recreate --remove-orphans
+
+db-init:
+	docker compose up -d --wait db
+	uv run python -m scripts.seed_db
 
 migrate-up:
 	docker compose exec -T api alembic upgrade head
