@@ -3,7 +3,10 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends, Header, HTTPException, Request, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from agroclimate.db.models import User
 
 
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
@@ -12,6 +15,9 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
     )
     async with session_factory() as session:
         yield session
+
+
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
 async def get_current_user_id(
@@ -25,5 +31,20 @@ async def get_current_user_id(
     return x_user_id
 
 
-SessionDep = Annotated[AsyncSession, Depends(get_session)]
 CurrentUserIdDep = Annotated[UUID, Depends(get_current_user_id)]
+
+
+async def get_current_user(
+    user_id: CurrentUserIdDep,
+    session: SessionDep,
+) -> UUID:
+    exists = await session.scalar(select(User.id).where(User.id == user_id))
+    if exists is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unknown user",
+        )
+    return user_id
+
+
+CurrentUserDep = Annotated[UUID, Depends(get_current_user)]

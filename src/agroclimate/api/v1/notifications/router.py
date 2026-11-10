@@ -3,7 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query
 
-from agroclimate.api.dependencies import CurrentUserIdDep, SessionDep
+from agroclimate.api.dependencies import CurrentUserDep, SessionDep
 from agroclimate.api.v1.notifications import service
 from agroclimate.api.v1.notifications.schemas import (
     NotificationList,
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/notifications", tags=["notifications"])
 @router.get("", response_model=NotificationList)
 async def list_notifications(
     session: SessionDep,
-    user_id: CurrentUserIdDep,
+    user_id: CurrentUserDep,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     cursor: Annotated[str | None, Query(max_length=256)] = None,
     unread: bool | None = None,
@@ -42,7 +42,7 @@ async def list_notifications(
 async def mark_notifications_read(
     payload: NotificationMarkReadRequest,
     session: SessionDep,
-    user_id: CurrentUserIdDep,
+    user_id: CurrentUserDep,
 ) -> NotificationMarkReadResponse:
     marked_ids = await service.mark_notifications_read(
         session,

@@ -3,7 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query, Response, status
 
-from agroclimate.api.dependencies import CurrentUserIdDep, SessionDep
+from agroclimate.api.dependencies import CurrentUserDep, SessionDep
 from agroclimate.api.v1.alerts import service
 from agroclimate.api.v1.alerts.schemas import (
     AlertCreate,
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/alerts", tags=["alerts"])
 async def create_alert(
     payload: AlertCreate,
     session: SessionDep,
-    user_id: CurrentUserIdDep,
+    user_id: CurrentUserDep,
 ) -> AlertRead:
     alert = await service.create_alert(session, user_id, payload)
     return AlertRead.model_validate(alert)
@@ -33,7 +33,7 @@ async def create_alert(
 @router.get("", response_model=AlertList)
 async def list_alerts(
     session: SessionDep,
-    user_id: CurrentUserIdDep,
+    user_id: CurrentUserDep,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     cursor: Annotated[str | None, Query(max_length=256)] = None,
     field_id: UUID | None = None,
@@ -59,7 +59,7 @@ async def list_alerts(
 async def get_alert(
     alert_id: UUID,
     session: SessionDep,
-    user_id: CurrentUserIdDep,
+    user_id: CurrentUserDep,
 ) -> AlertRead:
     alert = await service.get_alert(session, user_id, alert_id)
     return AlertRead.model_validate(alert)
@@ -70,7 +70,7 @@ async def update_alert(
     alert_id: UUID,
     payload: AlertUpdate,
     session: SessionDep,
-    user_id: CurrentUserIdDep,
+    user_id: CurrentUserDep,
 ) -> AlertRead:
     alert = await service.update_alert(session, user_id, alert_id, payload)
     return AlertRead.model_validate(alert)
@@ -80,7 +80,7 @@ async def update_alert(
 async def delete_alert(
     alert_id: UUID,
     session: SessionDep,
-    user_id: CurrentUserIdDep,
+    user_id: CurrentUserDep,
 ) -> Response:
     await service.delete_alert(session, user_id, alert_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

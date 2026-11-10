@@ -69,7 +69,7 @@ async def create_alert(
         if accessible_field is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Field not found",
+                detail="Field not found or not accessible",
             )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

@@ -1,4 +1,4 @@
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx2
 import pytest
@@ -25,6 +25,31 @@ async def test_create_alert_requires_a_valid_user_header(
     )
 
     assert response.status_code == (401 if missing_header else 422)
+
+
+async def test_unknown_user_is_rejected(
+    api_client: httpx2.AsyncClient,
+    sample_fields: list[Field],
+) -> None:
+    headers = {"X-User-Id": str(uuid4())}
+
+    create = await api_client.post(
+        "/v1/alerts",
+        headers=headers,
+        json={
+            "field_id": str(sample_fields[0].id),
+            "event_type": "rain",
+            "threshold": 60,
+        },
+    )
+    list_alerts = await api_client.get("/v1/alerts", headers=headers)
+    list_notifications = await api_client.get(
+        "/v1/notifications", headers=headers
+    )
+
+    for response in (create, list_alerts, list_notifications):
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Unknown user"
 
 
 async def test_create_alert_and_reject_duplicate(
@@ -68,7 +93,7 @@ async def test_create_alert_requires_field_access(
     )
 
     assert response.status_code == 404
-    assert response.json()["detail"] == "Field not found"
+    assert response.json()["detail"] == "Field not found or not accessible"
 
 
 async def test_alert_crud_and_owner_isolation(
@@ -203,6 +228,16 @@ async def test_alert_validation_and_invalid_cursor(
         headers=headers,
         json={},
     )
+    null_threshold_patch = await api_client.patch(
+        f"/v1/alerts/{UUID(int=1)}",
+        headers=headers,
+        json={"threshold": None},
+    )
+    null_active_patch = await api_client.patch(
+        f"/v1/alerts/{UUID(int=1)}",
+        headers=headers,
+        json={"active": None},
+    )
     invalid_cursor = await api_client.get(
         "/v1/alerts",
         headers=headers,
@@ -212,6 +247,8 @@ async def test_alert_validation_and_invalid_cursor(
     assert invalid_threshold.status_code == 422
     assert invalid_event.status_code == 422
     assert empty_patch.status_code == 422
+    assert null_threshold_patch.status_code == 422
+    assert null_active_patch.status_code == 422
     assert invalid_cursor.status_code == 422
 
 
