@@ -10,13 +10,14 @@ from zoneinfo import ZoneInfo
 
 import structlog
 from sqlalchemy import Table, func, insert, select
-from sqlalchemy.engine import Connection, make_url
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agroclimate.core.config import get_app_settings
 from agroclimate.db.models import EventType, Field, User, WeatherForecast
 from agroclimate.db.session import create_engine, create_session_factory
 from agroclimate.db.settings import get_database_settings
+from scripts.create_external_tables import create_external_tables
 
 USER_COUNT = 100
 FIELD_COUNT = 200
@@ -36,12 +37,6 @@ def chunks[T](items: Iterable[T], size: int) -> Iterator[list[T]]:
             batch = []
     if batch:
         yield batch
-
-
-def create_external_tables(connection: Connection) -> None:
-    """Create only the local stand-ins for Agrobot-owned tables."""
-    for table in (User.__table__, Field.__table__, WeatherForecast.__table__):
-        table.create(connection, checkfirst=True)
 
 
 def build_users() -> list[dict[str, Any]]:
