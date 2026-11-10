@@ -49,17 +49,17 @@ async def test_notifications_are_scoped_and_filterable(
 
     headers = {"X-User-Id": str(sample_users[0].id)}
     unread = await api_client.get(
-        "/api/v1/notifications",
+        "/v1/notifications",
         headers=headers,
         params={"unread": True},
     )
     read = await api_client.get(
-        "/api/v1/notifications",
+        "/v1/notifications",
         headers=headers,
         params={"unread": False},
     )
     field_filtered = await api_client.get(
-        "/api/v1/notifications",
+        "/v1/notifications",
         headers=headers,
         params={"field_id": str(sample_fields[0].id)},
     )
@@ -102,13 +102,13 @@ async def test_notification_keyset_pagination(
 
     headers = {"X-User-Id": str(sample_users[0].id)}
     first_page = await api_client.get(
-        "/api/v1/notifications",
+        "/v1/notifications",
         headers=headers,
         params={"limit": 2},
     )
     cursor = first_page.json()["next_cursor"]
     second_page = await api_client.get(
-        "/api/v1/notifications",
+        "/v1/notifications",
         headers=headers,
         params={"limit": 2, "cursor": cursor},
     )
@@ -161,7 +161,7 @@ async def test_mark_notifications_read_is_bulk_idempotent_and_private(
     payload = {"notification_ids": [str(item) for item in notification_ids]}
 
     first_read = await api_client.post(
-        "/api/v1/notifications/read",
+        "/v1/notifications/read",
         headers=owner_headers,
         json=payload,
     )
@@ -183,7 +183,7 @@ async def test_mark_notifications_read_is_bulk_idempotent_and_private(
     assert foreign_notification.read_at is None
 
     second_read = await api_client.post(
-        "/api/v1/notifications/read",
+        "/v1/notifications/read",
         headers=owner_headers,
         json=payload,
     )
@@ -212,7 +212,7 @@ async def test_mark_one_notification_read_with_single_id(
     await postgres_session.flush()
 
     response = await api_client.post(
-        "/api/v1/notifications/read",
+        "/v1/notifications/read",
         headers={"X-User-Id": str(sample_users[0].id)},
         json={"notification_ids": [str(notification.id)]},
     )
@@ -229,7 +229,7 @@ async def test_mark_notifications_read_validates_id_list(
     sample_users: list[User],
 ) -> None:
     headers = {"X-User-Id": str(sample_users[0].id)}
-    endpoint = "/api/v1/notifications/read"
+    endpoint = "/v1/notifications/read"
 
     empty_list = await api_client.post(
         endpoint,
@@ -266,7 +266,7 @@ async def test_deleting_alert_preserves_notification_history(
 ) -> None:
     headers = {"X-User-Id": str(sample_users[0].id)}
     created_alert = await api_client.post(
-        "/api/v1/alerts",
+        "/v1/alerts",
         headers=headers,
         json={
             "field_id": str(sample_fields[0].id),
@@ -289,7 +289,7 @@ async def test_deleting_alert_preserves_notification_history(
     await postgres_session.flush()
 
     deleted = await api_client.delete(
-        f"/api/v1/alerts/{created_alert.json()['id']}",
+        f"/v1/alerts/{created_alert.json()['id']}",
         headers=headers,
     )
     assert deleted.status_code == 204

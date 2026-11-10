@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from agroclimate.api.health import router as health_router
-from agroclimate.api.v1.router import router as api_router
+from agroclimate.api.v1.router import router as v1_api_router
 from agroclimate.core.config import AppSettings, get_app_settings
 from agroclimate.core.observability import (
     configure_observability,
@@ -49,6 +49,6 @@ def create_app(
     instrument_fastapi(app)
 
     app.include_router(health_router)
-    app.include_router(api_router, prefix="/api/v1")
+    app.include_router(v1_api_router, prefix="/v1")
 
     return app

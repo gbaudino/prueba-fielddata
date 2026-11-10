@@ -1,4 +1,3 @@
-from typing import cast
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
@@ -50,7 +49,7 @@ async def create_alert(
         .returning(Alert)
     )
     result = await session.execute(statement)
-    alert = cast(Alert | None, result.scalar_one_or_none())
+    alert = result.scalar_one_or_none()
 
     if alert is None:
         accessible_field = await session.scalar(
@@ -119,14 +118,11 @@ async def get_alert(
     user_id: UUID,
     alert_id: UUID,
 ) -> Alert:
-    alert = cast(
-        Alert | None,
-        await session.scalar(
-            select(Alert).where(
-                Alert.id == alert_id,
-                Alert.user_id == user_id,
-            )
-        ),
+    alert = await session.scalar(
+        select(Alert).where(
+            Alert.id == alert_id,
+            Alert.user_id == user_id,
+        )
     )
     if alert is None:
         raise HTTPException(
@@ -150,7 +146,7 @@ async def update_alert(
         .returning(Alert)
     )
     result = await session.execute(statement)
-    alert = cast(Alert | None, result.scalar_one_or_none())
+    alert = result.scalar_one_or_none()
     if alert is None:
         await session.rollback()
         raise HTTPException(
