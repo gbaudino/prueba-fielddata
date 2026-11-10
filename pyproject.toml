@@ -1,6 +1,6 @@
 [project]
 name = "agroclimate"
-version = "0.1.0"
+version = "0.0.0"
 description = "Weather alert system for agriculture"
 readme = "README.md"
 authors = [
@@ -59,3 +59,35 @@ strict = true
 [tool.coverage.run]
 source = ["src/agroclimate"]
 branch = true
+
+[tool.semantic_release]
+commit_parser = "conventional"
+allow_zero_version = true
+major_on_zero = true
+tag_format = "v{version}"
+version_toml = ["pyproject.toml:project.version"]
+commit_message = "chore(release): {version}"
+build_command = '''uv lock --upgrade-package "$PACKAGE_NAME" && git add uv.lock'''
+
+[tool.semantic_release.commit_parser_options]
+minor_tags = ["feat"]
+patch_tags = ["fix", "perf"]
+other_allowed_tags = ["build", "chore", "ci", "docs", "refactor", "revert", "style", "test"]
+parse_squash_commits = true
+ignore_merge_commits = true
+
+[tool.semantic_release.changelog]
+mode = "update"
+exclude_commit_patterns = [
+    '''^build(?:\([^)]*\))?: .+''',
+    '''^chore(?:\([^)]*\))?: .+''',
+    '''^ci(?:\([^)]*\))?: .+''',
+    '''^docs(?:\([^)]*\))?: .+''',
+    '''^refactor(?:\([^)]*\))?: .+''',
+    '''^revert(?:\([^)]*\))?: .+''',
+    '''^style(?:\([^)]*\))?: .+''',
+    '''^test(?:\([^)]*\))?: .+''',
+]
+
+[tool.semantic_release.publish]
+upload_to_vcs_release = false
