@@ -1,5 +1,5 @@
-.PHONY: sync check fix test coverage build start stop restart db-init test-db \
-		migrate-up migrate-down migrate-create worker-once
+.PHONY: sync check fix test coverage build start stop restart \
+		db-init test-db migrate-up migrate-down migrate-create worker-once
 
 sync:
 	uv sync --locked
@@ -34,6 +34,9 @@ stop:
 
 restart: build
 	docker compose up -d --force-recreate --remove-orphans api worker
+
+demo: start
+	./scripts/demo.sh
 
 db-init:
 	docker compose up -d --wait db
