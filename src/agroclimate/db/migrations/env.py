@@ -4,7 +4,7 @@ from typing import Literal
 
 from alembic import context
 from sqlalchemy import pool
-from sqlalchemy.engine import Connection
+from sqlalchemy.engine import URL, Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.schema import SchemaItem
 
@@ -43,6 +43,9 @@ def include_object(
 def get_database_url() -> str:
     database_url = config.attributes.get("database_url")
     if database_url is not None:
+        if not isinstance(database_url, URL):
+            raise TypeError("database_url must be a SQLAlchemy URL")
+
         return database_url.render_as_string(hide_password=False)
 
     return get_database_settings().database_url.render_as_string(
