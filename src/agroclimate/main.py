@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from importlib.metadata import version
 
 from fastapi import FastAPI
 
@@ -42,7 +43,7 @@ def create_app(
 
     app = FastAPI(
         title=settings.app_name,
-        version="0.1.0",
+        version=version("agroclimate"),
         lifespan=lifespan,
     )
 

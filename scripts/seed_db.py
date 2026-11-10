@@ -18,11 +18,11 @@ from agroclimate.db.models import EventType, Field, User, WeatherForecast
 from agroclimate.db.session import create_engine, create_session_factory
 from agroclimate.db.settings import get_database_settings
 
-USER_COUNT = 200
-FIELD_COUNT = 500
-FORECAST_DAYS = 30
+USER_COUNT = 100
+FIELD_COUNT = 200
+FORECAST_DAYS = 5
 RANDOM_SEED = 42
-INSERT_BATCH_SIZE = 5_000
+INSERT_BATCH_SIZE = 2_000
 DEMO_TIMEZONE = "America/Argentina/Cordoba"
 logger = structlog.get_logger(__name__)
 

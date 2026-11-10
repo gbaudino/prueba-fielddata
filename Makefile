@@ -1,5 +1,5 @@
-.PHONY: sync check fix test coverage build start stop restart db-init test-db \
-		migrate-up migrate-down migrate-create worker-once
+.PHONY: sync check fix test coverage build start stop restart db-init \
+		test-db migrate-up migrate-down migrate-create worker-once
 
 sync:
 	uv sync --locked
