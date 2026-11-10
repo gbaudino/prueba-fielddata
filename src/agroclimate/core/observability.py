@@ -1,4 +1,5 @@
 import logging
+import re
 import sys
 from time import perf_counter
 from uuid import uuid4
@@ -12,10 +13,27 @@ from structlog.typing import Processor
 from agroclimate.core.config import AppSettings
 
 UVICORN_LOGGERS = ("uvicorn", "uvicorn.error")
-LOGGERS_TO_IGNORE: tuple[str, ...] = ()
+REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
 logger = structlog.get_logger(__name__)
 logging.getLogger("uvicorn.access").disabled = True
+
+
+def sanitize_request_id(value: str | None) -> str:
+    if value is not None:
+        candidate = value.strip()
+        if REQUEST_ID_PATTERN.fullmatch(candidate):
+            return candidate
+    return str(uuid4())
+
+
+def _build_renderer(settings: AppSettings) -> Processor:
+    if settings.environment == "production":
+        return structlog.processors.JSONRenderer()
+    return structlog.dev.ConsoleRenderer(
+        colors=sys.stdout.isatty(),
+        pad_event_to=0,
+    )
 
 
 def configure_observability(settings: AppSettings) -> None:
@@ -24,17 +42,13 @@ def configure_observability(settings: AppSettings) -> None:
         structlog.processors.TimeStamper(fmt="iso", utc=True),
         structlog.processors.StackInfoRenderer(),
     ]
-
-    console_renderer = structlog.dev.ConsoleRenderer(
-        colors=True,
-        pad_event_to=0,
-    )
+    renderer = _build_renderer(settings)
 
     structlog.configure(
         processors=[
             *shared_processors,
             structlog.processors.add_log_level,
-            console_renderer,
+            renderer,
         ],
         wrapper_class=structlog.make_filtering_bound_logger(
             logging.getLevelNamesMapping()[settings.log_level]
@@ -50,7 +64,7 @@ def configure_observability(settings: AppSettings) -> None:
             ],
             processors=[
                 ProcessorFormatter.remove_processors_meta,
-                structlog.dev.ConsoleRenderer(colors=True, pad_event_to=0),
+                renderer,
             ],
         )
     )
@@ -64,9 +78,6 @@ def configure_observability(settings: AppSettings) -> None:
         uvicorn_logger.handlers.clear()
         uvicorn_logger.propagate = True
 
-    for name in LOGGERS_TO_IGNORE:
-        logging.getLogger(name).setLevel(logging.CRITICAL + 1)
-
 
 def instrument_fastapi(app: FastAPI) -> None:
     @app.middleware("http")
@@ -74,9 +85,7 @@ def instrument_fastapi(app: FastAPI) -> None:
         request: Request,
         call_next: RequestResponseEndpoint,
     ) -> Response:
-        request_id = request.headers.get("X-Request-ID", "").strip()
-        if not request_id or len(request_id) > 128:
-            request_id = str(uuid4())
+        request_id = sanitize_request_id(request.headers.get("X-Request-ID"))
 
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(request_id=request_id)
