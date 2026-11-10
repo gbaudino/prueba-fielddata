@@ -70,7 +70,7 @@ class WeatherForecast(Base):
     __table_args__ = (
         UniqueConstraint("field_id", "event_type", "forecast_date"),
         CheckConstraint(
-            "probability BETWEEN 1 AND 100", name="probability_range"
+            "probability BETWEEN 0 AND 100", name="probability_range"
         ),
         {"info": {"is_external": True}},
     )
