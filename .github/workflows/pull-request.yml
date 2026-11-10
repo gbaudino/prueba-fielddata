@@ -1,0 +1,88 @@
+name: Pull Request
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  code-quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          python-version: "3.14"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Validate pull request title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: uvx --from commitizen==4.19.3 cz check --message "$PR_TITLE"
+
+      - name: Run pre-commit checks
+        run: uv run pre-commit run --all-files
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      APP_NAME: agroclimate
+      ENVIRONMENT: test
+      LOG_LEVEL: INFO
+      POSTGRES_DB: agroclimate
+      POSTGRES_USER: agroclimate
+      POSTGRES_PASSWORD: local-dev-password
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_POOL_SIZE: "5"
+      POSTGRES_MAX_OVERFLOW: "5"
+      POSTGRES_POOL_TIMEOUT_SECONDS: "30"
+      POSTGRES_POOL_RECYCLE_SECONDS: "1800"
+      EVALUATION_INTERVAL_SECONDS: "3600"
+      EVALUATION_TIMEOUT_SECONDS: "30"
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: agroclimate
+          POSTGRES_USER: agroclimate
+          POSTGRES_PASSWORD: local-dev-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agroclimate -d agroclimate"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          python-version: "3.14"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Run tests
+        run: uv run pytest --cov --cov-report=term-missing
