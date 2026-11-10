@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from collections.abc import AsyncIterator, Iterator
 from datetime import date, timedelta
 from typing import cast
@@ -14,9 +13,9 @@ import pytest_asyncio
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
-from pydantic import SecretStr
-from sqlalchemy import Table, inspect, text
-from sqlalchemy.engine import Connection, make_url
+from sqlalchemy import Table, text
+from sqlalchemy.engine import Connection
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -25,10 +24,12 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import NullPool
 
 from agroclimate.api.dependencies import get_session
-from agroclimate.core.config import AppSettings
+from agroclimate.core.config import AppSettings, get_app_settings
 from agroclimate.db.models import EventType, Field, User, WeatherForecast
 from agroclimate.db.settings import DatabaseSettings, get_database_settings
 from agroclimate.main import create_app
+
+TEST_DATABASE_NAME = "agroclimate_test"
 
 
 @pytest.fixture
@@ -40,15 +41,27 @@ def settings() -> AppSettings:
     )
 
 
+@pytest.fixture(scope="session")
+def test_database_settings() -> DatabaseSettings:
+    """Reuse local DB credentials, but target a dedicated test database."""
+    if get_app_settings().environment == "production":
+        pytest.fail("Refusing to run tests with ENVIRONMENT=production")
+
+    base_settings = get_database_settings()
+    if base_settings.postgres_db == TEST_DATABASE_NAME:
+        pytest.fail(
+            "POSTGRES_DB cannot be the test database. "
+            "Use a separate development database in .env."
+        )
+
+    return base_settings.model_copy(update={"postgres_db": TEST_DATABASE_NAME})
+
+
 @pytest.fixture
-def database_settings() -> DatabaseSettings:
-    return DatabaseSettings(
-        postgres_db="agroclimate_test",
-        postgres_user="test",
-        postgres_password=SecretStr("test-password"),
-        postgres_host="localhost",
-        postgres_port=5432,
-    )
+def database_settings(
+    test_database_settings: DatabaseSettings,
+) -> DatabaseSettings:
+    return test_database_settings
 
 
 @pytest.fixture
@@ -101,62 +114,55 @@ async def api_client(
 
 
 @pytest.fixture(scope="session")
-def test_database_url() -> Iterator[str]:
-    """Prepare a disposable PostgreSQL database for integration tests."""
-    database_url = os.getenv("TEST_DATABASE_URL")
-    if not database_url:
-        pytest.skip(
-            "Set TEST_DATABASE_URL to run PostgreSQL integration tests"
-        )
+def test_database_url(
+    test_database_settings: DatabaseSettings,
+) -> Iterator[str]:
+    """Prepare an isolated PostgreSQL database for integration tests."""
+    base_settings = get_database_settings()
+    database_url = test_database_settings.database_url
+    database_url_string = database_url.render_as_string(hide_password=False)
 
-    parsed_url = make_url(database_url)
-    if not parsed_url.database or "test" not in parsed_url.database.lower():
-        pytest.fail(
-            "TEST_DATABASE_URL must point to a database with 'test' "
-            "in its name"
+    async def ensure_database_exists() -> None:
+        admin_engine = create_async_engine(
+            base_settings.database_url.set(database="postgres"),
+            isolation_level="AUTOCOMMIT",
+            poolclass=NullPool,
         )
-
-    environment_keys = (
-        "POSTGRES_DB",
-        "POSTGRES_USER",
-        "POSTGRES_PASSWORD",
-        "POSTGRES_HOST",
-        "POSTGRES_PORT",
-    )
-    previous_environment = {
-        key: os.environ.get(key) for key in environment_keys
-    }
-    os.environ.update(
-        {
-            "POSTGRES_DB": parsed_url.database or "",
-            "POSTGRES_USER": parsed_url.username or "",
-            "POSTGRES_PASSWORD": parsed_url.password or "",
-            "POSTGRES_HOST": parsed_url.host or "localhost",
-            "POSTGRES_PORT": str(parsed_url.port or 5432),
-        }
-    )
-    get_database_settings.cache_clear()
+        try:
+            async with admin_engine.connect() as connection:
+                exists = await connection.scalar(
+                    text("SELECT 1 FROM pg_database WHERE datname = :name"),
+                    {"name": TEST_DATABASE_NAME},
+                )
+                if not exists:
+                    identifier = connection.dialect.identifier_preparer.quote(
+                        TEST_DATABASE_NAME
+                    )
+                    await connection.exec_driver_sql(
+                        f"CREATE DATABASE {identifier}"
+                    )
+        finally:
+            await admin_engine.dispose()
 
     engine = create_async_engine(database_url, poolclass=NullPool)
+    database_ready = False
+    schema_prepared = False
+    migration_applied = False
+    migration_config = Config("alembic.ini")
+    migration_config.attributes["database_url"] = database_url
 
     def create_table(sync_connection: Connection, table: Table) -> None:
         table.create(sync_connection)
 
-    def drop_table(sync_connection: Connection, table: Table) -> None:
-        table.drop(sync_connection, checkfirst=True)
+    async def reset_test_schema() -> None:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text("DROP SCHEMA IF EXISTS public CASCADE")
+            )
+            await connection.execute(text("CREATE SCHEMA public"))
 
     async def create_external_tables() -> None:
         async with engine.begin() as connection:
-            existing_tables = await connection.run_sync(
-                lambda sync_connection: inspect(
-                    sync_connection
-                ).get_table_names()
-            )
-            if existing_tables:
-                raise RuntimeError(
-                    "TEST_DATABASE_URL must point to an empty database; "
-                    f"found tables: {', '.join(existing_tables)}"
-                )
             external_tables = (
                 cast(Table, User.__table__),
                 cast(Table, Field.__table__),
@@ -165,50 +171,34 @@ def test_database_url() -> Iterator[str]:
             for table in external_tables:
                 await connection.run_sync(create_table, table)
 
-    async def drop_test_tables() -> None:
-        async with engine.begin() as connection:
-            await connection.execute(
-                text("DROP TABLE IF EXISTS notifications CASCADE")
-            )
-            await connection.execute(
-                text("DROP TABLE IF EXISTS alerts CASCADE")
-            )
-            external_tables = (
-                cast(Table, WeatherForecast.__table__),
-                cast(Table, Field.__table__),
-                cast(Table, User.__table__),
-            )
-            for table in external_tables:
-                await connection.run_sync(drop_table, table)
-            await connection.execute(
-                text("DROP TABLE IF EXISTS alembic_version")
+    try:
+        try:
+            asyncio.run(ensure_database_exists())
+            database_ready = True
+            asyncio.run(reset_test_schema())
+            schema_prepared = True
+            asyncio.run(create_external_tables())
+        except SQLAlchemyError as exc:
+            pytest.fail(
+                "Could not prepare PostgreSQL integration tests. "
+                "Make sure Docker is running, .env has valid POSTGRES_* "
+                "settings, and POSTGRES_USER can create databases. "
+                f"Details: {exc}"
             )
 
-    external_schema_created = False
-    migration_applied = False
-    alembic_config = Config("alembic.ini")
-    try:
-        asyncio.run(create_external_tables())
-        external_schema_created = True
-        command.upgrade(alembic_config, "head")
+        command.upgrade(migration_config, "head")
         migration_applied = True
-        yield database_url
+        yield database_url_string
     finally:
         try:
-            if migration_applied:
-                command.downgrade(alembic_config, "base")
+            if database_ready and migration_applied:
+                command.downgrade(migration_config, "base")
         finally:
             try:
-                if external_schema_created:
-                    asyncio.run(drop_test_tables())
+                if database_ready and schema_prepared:
+                    asyncio.run(reset_test_schema())
             finally:
                 asyncio.run(engine.dispose())
-                for key, value in previous_environment.items():
-                    if value is None:
-                        os.environ.pop(key, None)
-                    else:
-                        os.environ[key] = value
-                get_database_settings.cache_clear()
 
 
 @pytest_asyncio.fixture

@@ -77,7 +77,7 @@ def build_fields(
 
 
 def build_forecasts(
-    fields: Sequence[dict[str, Any]]
+    fields: Sequence[dict[str, Any]],
 ) -> Iterator[dict[str, Any]]:
     today = datetime.now(ZoneInfo(DEMO_TIMEZONE)).date()
     rng = random.Random(RANDOM_SEED)

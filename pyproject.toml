@@ -55,3 +55,7 @@ addopts = "-ra"
 python_version = "3.14"
 mypy_path = "src"
 strict = true
+
+[tool.coverage.run]
+source = ["src/agroclimate"]
+branch = true

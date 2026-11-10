@@ -41,6 +41,10 @@ def include_object(
 
 
 def get_database_url() -> str:
+    database_url = config.attributes.get("database_url")
+    if database_url is not None:
+        return database_url.render_as_string(hide_password=False)
+
     return get_database_settings().database_url.render_as_string(
         hide_password=False
     )

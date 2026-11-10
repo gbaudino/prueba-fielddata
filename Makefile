@@ -1,4 +1,4 @@
-.PHONY: sync check fix test coverage build start down restart db-init \
+.PHONY: sync check fix test coverage build start stop restart db-init test-db \
 		migrate-up migrate-down migrate-create
 
 sync:
@@ -14,11 +14,14 @@ fix:
 	uv run ruff format
 	uv run ruff check --fix
 
-test:
+test: test-db
 	uv run pytest $(ARGS)
 
-coverage:
-	uv run pytest --cov=agroclimate --cov-report=term-missing $(ARGS)
+coverage: test-db
+	uv run pytest --cov --cov-report=term-missing $(ARGS)
+
+test-db:
+	docker compose up -d --wait db
 
 build:
 	docker compose build
@@ -26,7 +29,7 @@ build:
 start: build db-init
 	docker compose up -d api
 
-down:
+stop:
 	docker compose down
 
 restart: build
