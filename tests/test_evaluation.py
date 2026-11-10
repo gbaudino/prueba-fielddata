@@ -99,6 +99,69 @@ async def test_evaluation_creates_one_notification_per_matching_day(
     )
 
 
+async def test_evaluation_notifies_when_probability_equals_threshold(
+    postgres_session: AsyncSession,
+    sample_users: list[User],
+    sample_fields: list[Field],
+) -> None:
+    alert = Alert(
+        user_id=sample_users[0].id,
+        field_id=sample_fields[0].id,
+        event_type=EventType.RAIN,
+        threshold=80,
+    )
+    forecast = WeatherForecast(
+        id=uuid4(),
+        field_id=sample_fields[0].id,
+        event_type=EventType.RAIN,
+        forecast_date=date(2026, 11, 10),
+        probability=80,
+    )
+    postgres_session.add_all([alert, forecast])
+    await postgres_session.flush()
+
+    created_count = await evaluate_alerts(
+        postgres_session,
+        evaluated_at=EVALUATED_AT,
+    )
+
+    notification = await postgres_session.scalar(
+        select(Notification).where(Notification.alert_id == alert.id)
+    )
+    assert created_count == 1
+    assert notification is not None
+    assert notification.probability == notification.threshold == 80
+
+
+async def test_evaluation_ignores_zero_probability_forecasts(
+    postgres_session: AsyncSession,
+    sample_users: list[User],
+    sample_fields: list[Field],
+) -> None:
+    alert = Alert(
+        user_id=sample_users[0].id,
+        field_id=sample_fields[0].id,
+        event_type=EventType.RAIN,
+        threshold=1,
+    )
+    forecast = WeatherForecast(
+        id=uuid4(),
+        field_id=sample_fields[0].id,
+        event_type=EventType.RAIN,
+        forecast_date=date(2026, 11, 10),
+        probability=0,
+    )
+    postgres_session.add_all([alert, forecast])
+    await postgres_session.flush()
+
+    created_count = await evaluate_alerts(
+        postgres_session,
+        evaluated_at=EVALUATED_AT,
+    )
+
+    assert created_count == 0
+
+
 async def test_evaluation_checks_current_field_access(
     postgres_session: AsyncSession,
     sample_users: list[User],

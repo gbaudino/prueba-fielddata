@@ -142,3 +142,31 @@ async def test_worker_continues_after_a_failed_cycle(
 
     assert calls == 2
     assert engine.disposed is True
+
+
+async def test_worker_once_propagates_timeout_and_disposes_engine(
+    monkeypatch: pytest.MonkeyPatch,
+    worker_config: tuple[AppSettings, DatabaseSettings, EvaluationSettings],
+) -> None:
+    engine = patch_worker(monkeypatch)
+    app_settings, database_settings, evaluation_settings = worker_config
+    evaluation_settings = evaluation_settings.model_copy(
+        update={"timeout_seconds": 0.01}
+    )
+
+    async def evaluate(_session: AsyncSession) -> int:
+        await asyncio.sleep(0.1)
+        return 0
+
+    monkeypatch.setattr(worker, "evaluate_alerts", evaluate)
+
+    with pytest.raises(TimeoutError):
+        await worker.run_worker(
+            once=True,
+            stop_event=asyncio.Event(),
+            app_settings=app_settings,
+            database_settings=database_settings,
+            evaluation_settings=evaluation_settings,
+        )
+
+    assert engine.disposed is True

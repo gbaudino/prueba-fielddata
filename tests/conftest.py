@@ -45,10 +45,22 @@ def settings() -> AppSettings:
 @pytest.fixture(scope="session")
 def test_database_settings() -> DatabaseSettings:
     """Reuse local DB credentials, but target a dedicated test database."""
-    if get_app_settings().environment == "production":
-        pytest.fail("Refusing to run tests with ENVIRONMENT=production")
+    environment = get_app_settings().environment
+    if environment not in {"local", "test"}:
+        pytest.fail(
+            "Refusing to run destructive integration tests outside "
+            "ENVIRONMENT=local or ENVIRONMENT=test"
+        )
 
     base_settings = get_database_settings()
+    host = base_settings.postgres_host.strip("[]").lower()
+    if host not in {"localhost", "127.0.0.1", "::1"}:
+        pytest.fail(
+            "Refusing to run destructive integration tests against a "
+            "non-local PostgreSQL host. Set POSTGRES_HOST to localhost "
+            "and use a dedicated local PostgreSQL instance."
+        )
+
     if base_settings.postgres_db == TEST_DATABASE_NAME:
         pytest.fail(
             "POSTGRES_DB cannot be the test database. "
