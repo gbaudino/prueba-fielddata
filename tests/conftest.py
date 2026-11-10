@@ -8,6 +8,7 @@ from typing import cast
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
+import httpx2
 import pytest
 import pytest_asyncio
 from alembic import command
@@ -72,6 +73,31 @@ def client(
         yield test_client
 
     app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def api_client(
+    settings: AppSettings,
+    database_settings: DatabaseSettings,
+    postgres_session: AsyncSession,
+) -> AsyncIterator[httpx2.AsyncClient]:
+    """Exercise the ASGI app with the real PostgreSQL test session."""
+    app = create_app(settings, database_settings)
+
+    async def override_get_session() -> AsyncIterator[AsyncSession]:
+        yield postgres_session
+
+    app.dependency_overrides[get_session] = override_get_session
+    transport = httpx2.ASGITransport(app=app)
+
+    try:
+        async with httpx2.AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+        ) as client:
+            yield client
+    finally:
+        app.dependency_overrides.clear()
 
 
 @pytest.fixture(scope="session")
