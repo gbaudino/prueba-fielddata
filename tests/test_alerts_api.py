@@ -93,7 +93,10 @@ async def test_alert_crud_and_owner_isolation(
     updated = await api_client.patch(
         f"/v1/alerts/{alert_id}",
         headers=owner_headers,
-        json={"threshold": 85, "active": False},
+        json={
+            "threshold": 85,
+            "active": False,
+        },
     )
     assert updated.status_code == 200
     assert updated.json()["threshold"] == 85

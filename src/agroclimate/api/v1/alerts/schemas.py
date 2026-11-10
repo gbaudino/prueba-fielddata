@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Self
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -21,7 +22,7 @@ class AlertUpdate(BaseModel):
     active: bool | None = None
 
     @model_validator(mode="after")
-    def validate_changes(self) -> AlertUpdate:
+    def validate_changes(self) -> Self:
         if not self.model_fields_set:
             raise ValueError("At least one field must be provided")
         if "threshold" in self.model_fields_set and self.threshold is None:

@@ -4,13 +4,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agroclimate.db.models import (
-    Alert,
-    EventType,
-    Field,
-    Notification,
-    User,
-)
+from agroclimate.db.models import Alert, EventType, Field, Notification, User
 
 
 @pytest.mark.parametrize("record_type", ["user", "field"])
@@ -20,17 +14,7 @@ async def test_notifications_restrict_deleting_referenced_external_records(
     sample_fields: list[Field],
     record_type: str,
 ) -> None:
-    alert = Alert(
-        user_id=sample_users[0].id,
-        field_id=sample_fields[0].id,
-        event_type=EventType.RAIN,
-        threshold=60,
-    )
-    postgres_session.add(alert)
-    await postgres_session.flush()
-
     notification = Notification(
-        alert_id=alert.id,
         user_id=sample_users[0].id,
         field_id=sample_fields[0].id,
         event_type=EventType.RAIN,
@@ -47,4 +31,45 @@ async def test_notifications_restrict_deleting_referenced_external_records(
     with pytest.raises(IntegrityError):
         async with postgres_session.begin_nested():
             await postgres_session.delete(referenced_record)
+            await postgres_session.flush()
+
+
+async def test_notification_is_unique_per_alert_and_forecast_date(
+    postgres_session: AsyncSession,
+    sample_users: list[User],
+    sample_fields: list[Field],
+) -> None:
+    alert = Alert(
+        user_id=sample_users[0].id,
+        field_id=sample_fields[0].id,
+        event_type=EventType.RAIN,
+        threshold=60,
+    )
+    postgres_session.add(alert)
+    await postgres_session.flush()
+
+    first = Notification(
+        alert_id=alert.id,
+        user_id=sample_users[0].id,
+        field_id=sample_fields[0].id,
+        event_type=EventType.RAIN,
+        forecast_date=date.today(),
+        probability=75,
+        threshold=60,
+    )
+    duplicate = Notification(
+        alert_id=alert.id,
+        user_id=sample_users[0].id,
+        field_id=sample_fields[0].id,
+        event_type=EventType.RAIN,
+        forecast_date=date.today(),
+        probability=80,
+        threshold=60,
+    )
+    postgres_session.add(first)
+    await postgres_session.flush()
+
+    with pytest.raises(IntegrityError):
+        async with postgres_session.begin_nested():
+            postgres_session.add(duplicate)
             await postgres_session.flush()

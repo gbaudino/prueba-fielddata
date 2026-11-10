@@ -40,7 +40,13 @@ async def create_alert(
     statement = (
         insert(Alert)
         .from_select(
-            ["id", "user_id", "field_id", "event_type", "threshold"],
+            [
+                "id",
+                "user_id",
+                "field_id",
+                "event_type",
+                "threshold",
+            ],
             source,
         )
         .on_conflict_do_nothing(

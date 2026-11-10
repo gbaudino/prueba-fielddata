@@ -14,3 +14,4 @@ build
 !.env.example
 scripts/
 tests/
+.github

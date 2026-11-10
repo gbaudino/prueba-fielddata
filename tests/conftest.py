@@ -17,6 +17,7 @@ from sqlalchemy import Table, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
@@ -199,6 +200,18 @@ def test_database_url(
                     asyncio.run(reset_test_schema())
             finally:
                 asyncio.run(engine.dispose())
+
+
+@pytest_asyncio.fixture
+async def postgres_engine(
+    test_database_url: str,
+) -> AsyncIterator[AsyncEngine]:
+    """Provide independent connections to the isolated test database."""
+    engine = create_async_engine(test_database_url, pool_pre_ping=True)
+    try:
+        yield engine
+    finally:
+        await engine.dispose()
 
 
 @pytest_asyncio.fixture

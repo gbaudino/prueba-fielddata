@@ -23,11 +23,11 @@ from agroclimate.db.models.events import EventType, event_type_column
 class Notification(Base):
     __tablename__ = "notifications"
     __table_args__ = (
-        UniqueConstraint("alert_id", "forecast_date"),
         CheckConstraint(
             "probability BETWEEN 1 AND 100", name="probability_range"
         ),
         CheckConstraint("threshold BETWEEN 1 AND 100", name="threshold_range"),
+        UniqueConstraint("alert_id", "forecast_date"),
         Index("ix_notifications_field_id", "field_id"),
         Index(
             "ix_notifications_user_created_id",
