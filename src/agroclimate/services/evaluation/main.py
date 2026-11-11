@@ -18,6 +18,7 @@ from agroclimate.db.models import (
     Field,
     Notification,
     OutboxEvent,
+    User,
     WeatherForecast,
 )
 
@@ -43,6 +44,10 @@ async def evaluate_alerts(
     )
     related_user = func.unnest(Field.related_users).alias("related_user")
 
+    # this SQL statement inserts the new notifications and,
+    # from the rows actually inserted, their outbox events.
+
+    # users missing from users are skipped
     candidates = (
         select(
             cast(func.gen_random_uuid(), Uuid(as_uuid=True)),
@@ -62,6 +67,7 @@ async def evaluate_alerts(
             & (WeatherForecast.event_type == Alert.event_type),
         )
         .join(related_user, true())
+        .join(User, User.id == related_user.column)
         .where(
             Alert.active.is_(True),
             WeatherForecast.forecast_date >= field_local_date,
@@ -69,6 +75,7 @@ async def evaluate_alerts(
         )
     )
 
+    # already notified dates are skipped, so reruns never duplicate
     created = (
         insert(Notification)
         .from_select(
@@ -121,6 +128,8 @@ async def evaluate_alerts(
         "created_at",
         created.c.created_at,
     )
+
+    # one outbox event per notification actually inserted
     events = (
         insert(OutboxEvent)
         .from_select(
