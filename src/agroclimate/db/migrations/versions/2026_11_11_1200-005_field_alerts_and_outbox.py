@@ -86,6 +86,7 @@ def upgrade() -> None:
     op.create_unique_constraint(
         ALERT_UNIQUE, "alerts", ["field_id", "event_type"]
     )
+    op.drop_index("ix_alerts_active_field_event_type", table_name="alerts")
 
     op.create_table(
         "outbox_events",
@@ -119,6 +120,13 @@ def downgrade() -> None:
     )
     op.drop_table("outbox_events")
 
+    op.create_index(
+        "ix_alerts_active_field_event_type",
+        "alerts",
+        ["field_id", "event_type"],
+        unique=False,
+        postgresql_where=sa.text("active IS TRUE"),
+    )
     op.add_column("alerts", sa.Column("user_id", sa.Uuid(), nullable=True))
     op.execute(
         """

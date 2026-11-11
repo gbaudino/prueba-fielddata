@@ -6,11 +6,9 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
-    Index,
     SmallInteger,
     UniqueConstraint,
     func,
-    text,
     true,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -25,12 +23,6 @@ class Alert(Base):
     __table_args__ = (
         UniqueConstraint("field_id", "event_type"),
         CheckConstraint("threshold BETWEEN 1 AND 100", name="threshold_range"),
-        Index(
-            "ix_alerts_active_field_event_type",
-            "field_id",
-            "event_type",
-            postgresql_where=text("active IS TRUE"),
-        ),
     )
 
     id: Mapped[UUID] = mapped_column(
