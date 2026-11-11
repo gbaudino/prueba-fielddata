@@ -44,7 +44,6 @@ def settings() -> AppSettings:
 
 @pytest.fixture(scope="session")
 def test_database_settings() -> DatabaseSettings:
-    """Reuse local DB credentials, but target a dedicated test database."""
     environment = get_app_settings().environment
     if environment not in {"local", "test"}:
         pytest.fail(
@@ -107,7 +106,6 @@ async def api_client(
     database_settings: DatabaseSettings,
     postgres_session: AsyncSession,
 ) -> AsyncIterator[httpx2.AsyncClient]:
-    """Exercise the ASGI app with the real PostgreSQL test session."""
     app = create_app(settings, database_settings)
 
     async def override_get_session() -> AsyncIterator[AsyncSession]:
@@ -130,7 +128,6 @@ async def api_client(
 def test_database_url(
     test_database_settings: DatabaseSettings,
 ) -> Iterator[str]:
-    """Prepare an isolated PostgreSQL database for integration tests."""
     base_settings = get_database_settings()
     database_url = test_database_settings.database_url
     database_url_string = database_url.render_as_string(hide_password=False)
@@ -218,7 +215,6 @@ def test_database_url(
 async def postgres_engine(
     test_database_url: str,
 ) -> AsyncIterator[AsyncEngine]:
-    """Provide independent connections to the isolated test database."""
     engine = create_async_engine(test_database_url, pool_pre_ping=True)
     try:
         yield engine
@@ -230,7 +226,6 @@ async def postgres_engine(
 async def postgres_session(
     test_database_url: str,
 ) -> AsyncIterator[AsyncSession]:
-    """Wrap each integration test in a rollback-only transaction."""
     engine = create_async_engine(test_database_url, pool_pre_ping=True)
     try:
         async with engine.connect() as connection:
