@@ -46,8 +46,7 @@ make start
 ```
 
 `make start` levanta PostgreSQL, aplica las migraciones y levanta la API y el
-worker. La documentacion interactiva (Swagger) queda en
-`http://localhost:8000/docs`.
+worker. El swagger esta en `http://localhost:8000/docs`.
 
 ### Ver el flujo completo
 
@@ -59,7 +58,7 @@ Carga datos de ejemplo, crea una alerta por la API, corre el worker y muestra
 las notificaciones y los eventos de outbox que se generaron. Despues corre el
 worker de nuevo para mostrar que no se duplica nada, es idempotente.
 
-### Probarlo por tu cuenta
+### Ejemplo para probar uno mismo
 
 ```bash
 make sample
@@ -129,14 +128,14 @@ las corridas siguientes no vuelve a avisar para el jueves.
 ## Outbox
 
 El envio real (WhatsApp, app, email) no esta en el alcance del take home creo.
-Para que dejar lista la integracion con otro servicio, cada notificacion nueva deja una fila en
+Para dejar lista la integracion con otro servicio, cada notificacion nueva deja una fila en
 `outbox_events` con `event_type = notification.created` y un `payload` JSON con
 el usuario, el campo, el evento, la fecha, la probabilidad y el umbral.
 
-La notificacion y su evento se guardan juntos: si falla uno, no se guarda
+La notificacion y su evento se guardan juntos, si falla uno no se guarda
 ninguno.
 
-El servicio que consume el outbox deberia leer los eventos pendientes y los marca como
+El servicio que consume el outbox deberia leer los eventos pendientes y marcarlos como
 publicados:
 
 ```sql
@@ -155,39 +154,32 @@ update outbox_events set published_at = now() where id = any(:ids);
 
 ### Producto
 
-- **Umbral.** Todos los eventos se comparan como `probability >= threshold`.
+- **Umbral** Todos los eventos se comparan como `probability >= threshold`.
   No hay alertas por temperatura ni por velocidad de viento. Tendria sentido para mi que una alerta sea por, por ejemplo, "alta probabilidad de viento fuerte de >40km/h", pero para mi no esta en el alcance del take home, se podria agregar a futuro.
-- **Alerta por campo.** Decidi que el umbral es una decision sobre el campo y el
-  evento en cuestion, no que cada usuario tenga su propio umbral. Hay una sola alerta por `(campo, evento)`: todos
-  los usuarios del campo la ven, la editan y reciben sus avisos. Si se intenta
-  crear otra, responde `409` avisando que ya existe. Esta forma tambien permite que el worker haga una sola evaluacion por alerta, en vez de una por usuario, es mas facil de escalar y para mi una decision de producto razonable.
-- **Ventana.** Se evaluan todos los pronosticos futuros disponibles, incluido
-  hoy en la zona horaria del campo. Es decir, que si tenemos forecast del tiempo para los proximos 7 dias, el worker evalua los 7 dias. No hay un limite de dias configurable por alerta, aunque podria agregarse a futuro.
-- **Una notificacion por fecha.** Lluvia el viernes y lluvia el sabado son dos
-  notificaciones. Una fecha ya avisada no se vuelve a avisar, aunque el umbral
-  siga superado o el pronostico cambie.
-- **Bajas de probabilidad.** No se avisa cuando el riesgo baja. Para avisar cuando baja, habria que guardar el estado anterior de cada alerta y comparar con el nuevo, podria agregarse a futuro.
-- **Historial.** La notificacion guarda la probabilidad y el umbral del
-  momento.
-- **Acceso.** Se usa `fields.related_users` en cada evaluacion: quien deja de
-  estar en el campo deja de recibir avisos nuevos.
+- **Alerta por campo** Decidi que el umbral es una decision sobre el campo y el evento en cuestion,
+  no que cada usuario tenga su propio umbral. Hay una sola alerta por `(campo, evento)`:
+  todos los usuarios del campo la ven, la editan y reciben sus avisos.
+  Si se intenta crear otra, responde `409` avisando que ya existe. Esta forma tambien permite que el worker haga una sola evaluacion por alerta, en vez de una por usuario, es mas facil de escalar y para mi una decision de producto razonable.
+- **Ventana** Se evaluan todos los pronosticos futuros disponibles, incluido hoy en la zona horaria del campo.
+  Es decir, que si tenemos forecast del tiempo para los proximos 7 dias, el worker evalua los 7 dias.
+  No hay un limite de dias configurable por alerta, aunque podria agregarse a futuro.
+- **Una notificacion por fecha** Lluvia el viernes y lluvia el sabado son dos notificaciones.
+  Una fecha ya avisada no se vuelve a avisar, aunque el umbral siga superado o el pronostico cambie.
+- **Bajas de probabilidad** No se avisa cuando el riesgo baja. Para avisar cuando baja, habria que guardar el estado anterior de cada alerta y comparar con el nuevo, eso podria agregarse a futuro, de hecho lo habia hecho pero lo saque para simplificar el take home.
+- **Historial** La notificacion guarda la probabilidad y el umbral del momento. Si cambia, el historial de notificaciones no es updateado, queda como cuando se genero.
+- **Acceso** Se usa `fields.related_users` en cada evaluacion, entonces quien deja de estar en los users del campo deja de recibir notificaciones del mismo.
 
 ### Tecnicas
 
-- **Que es notificar.** Guardar la notificacion, exponerla por API y dejar un
-  evento en el outbox. El envio por WhatsApp u otro canal queda fuera como dice la consigna.
-- **Campo y clima.** El pronostico se vincula al campo por `field_id`. El campo
-  tiene latitud, longitud y zona horaria.
-- **Zona horaria.** El "hoy" es el dia local del campo (`fields.timezone`), no
-  el del servidor o UTC, para no errarle en el dia del pronostico.
-- **Worker aparte.** Corre en un proceso separado de la API, con intervalo
-  configurable. `make worker-once` corre un solo ciclo, util para dispararlo
-  desde un cron o despues de cargar pronosticos si se tuviera un orquestrador.
+- **Que es notificar** Guardar la notificacion, exponerla por API y dejar un evento en el outbox.
+  El envio por WhatsApp u otro canal queda fuera como dice la consigna.
+- **Campo y clima** El pronostico se vincula al campo por `field_id`. El campo tiene latitud, longitud y zona horaria.
+- **Zona horaria** El "hoy" es el dia local del campo (`fields.timezone`), no UTC, para no errarle en el dia del pronostico del campo.
+- **Worker aparte.** Corre en un proceso separado de la API, con intervalo configurable.
+  `make worker-once` corre un solo ciclo, util para dispararlo desde un cron o despues de cargar pronosticos si se tuviera un orquestrador.
 - **Varias instancias.** De necesitarse, se pueden correr varios workers a la vez.
-  Se rechaza notificaciones repetidas (`UNIQUE` + `ON CONFLICT DO NOTHING`), asi
-  que no hacen falta locks.
-- **Auth y datos externos.** `X-User-Id` simula la identidad. Las tablas de
-  Agrobot se crean localmente solo para desarrollo y tests.
+  Se rechaza notificaciones repetidas (`UNIQUE` + `ON CONFLICT DO NOTHING`), asi que no hacen falta locks.
+- **Auth y datos externos.** `X-User-Id` simula la identidad. Las tablas de Agrobot se crean localmente solo para desarrollo y tests.
 
 ## Configuracion
 
