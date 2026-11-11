@@ -36,6 +36,7 @@ class AlertRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    created_by: UUID | None
     field_id: UUID
     event_type: EventType
     threshold: int

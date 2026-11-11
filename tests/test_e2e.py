@@ -3,9 +3,16 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import httpx2
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agroclimate.db.models import EventType, Field, User, WeatherForecast
+from agroclimate.db.models import (
+    EventType,
+    Field,
+    OutboxEvent,
+    User,
+    WeatherForecast,
+)
 from agroclimate.services.evaluation.main import evaluate_alerts
 
 
@@ -46,7 +53,8 @@ async def test_alert_flow_generates_a_queryable_notification(
         postgres_session,
         evaluated_at=evaluated_at,
     )
-    assert created_notifications == 1
+    # Both users of the field are notified.
+    assert created_notifications == 2
 
     response = await api_client.get(
         "/v1/notifications",
@@ -60,3 +68,15 @@ async def test_alert_flow_generates_a_queryable_notification(
     assert items[0]["event_type"] == EventType.RAIN.value
     assert items[0]["probability"] == 85
     assert items[0]["threshold"] == 60
+    assert (
+        items[0]["forecast_date"]
+        == (local_date + timedelta(days=1)).isoformat()
+    )
+
+    outbox = list((await postgres_session.scalars(select(OutboxEvent))).all())
+    assert len(outbox) == 2
+    assert all(
+        event.event_type == "notification.created"
+        and event.payload["probability"] == 85
+        for event in outbox
+    )

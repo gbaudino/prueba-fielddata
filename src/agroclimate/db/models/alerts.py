@@ -9,7 +9,6 @@ from sqlalchemy import (
     Index,
     SmallInteger,
     UniqueConstraint,
-    desc,
     func,
     text,
     true,
@@ -24,13 +23,7 @@ from agroclimate.db.models.events import EventType, event_type_column
 class Alert(Base):
     __tablename__ = "alerts"
     __table_args__ = (
-        UniqueConstraint("user_id", "field_id", "event_type"),
-        Index(
-            "ix_alerts_user_created_id",
-            "user_id",
-            desc("created_at"),
-            desc("id"),
-        ),
+        UniqueConstraint("field_id", "event_type"),
         CheckConstraint("threshold BETWEEN 1 AND 100", name="threshold_range"),
         Index(
             "ix_alerts_active_field_event_type",
@@ -43,8 +36,8 @@ class Alert(Base):
     id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid4
     )
-    user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE")
+    created_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
     )
     field_id: Mapped[UUID] = mapped_column(
         ForeignKey("fields.id", ondelete="CASCADE")
