@@ -1,283 +1,214 @@
 # Agroclimate - FieldData Challenge
 
-[![Coverage](https://img.shields.io/badge/coverage-94%25-brightgreen)](https://github.com/gbaudino/prueba-fielddata/actions/workflows/pull-request.yml)
+API de alertas climaticas. Consume usuarios, campos y pronosticos de Agrobot y
+administra alertas y notificaciones: se define un umbral para un evento de un
+campo, un worker evalua los pronosticos y notifica a los usuarios del campo.
 
-API de alertas climaticas. Consume usuarios, campos y pronosticos de Agrobot, y
-administra alertas y notificaciones: el usuario define un umbral, el worker
-evalua los pronosticos y la API expone las notificaciones generadas.
+Las notificaciones se exponen de dos formas:
 
-El codigo es la fuente de verdad. Las decisiones que no estan implementadas
-quedan marcadas como limite o trabajo futuro.
+- **API REST**, para consultarlas y marcarlas como leidas.
+- **Outbox** (`outbox_events`), para que otro servicio (por ejemplo, el que
+  envia WhatsApp) las consuma leyendo esa tabla.
 
-## Stack
-
-Python 3.14 · FastAPI · PostgreSQL · SQLAlchemy async · Alembic · structlog ·
-Docker Compose · uv · pytest · Ruff · Mypy.
+Hecho con Python 3.14, FastAPI, PostgreSQL, SQLAlchemy y Alembic.
 
 ## Arquitectura
 
 ```mermaid
 flowchart LR
-    Client["Cliente / Swagger"] -->|"HTTP + X-User-Id"| API["FastAPI"]
+    Client["Cliente"] -->|"HTTP"| API["API"]
     API --> DB[("PostgreSQL")]
-    Worker["Worker de evaluacion"] --> DB
-    Agrobot["Agrobot"] -.->|"users, fields, weather_forecasts"| DB
+    Worker["Worker"] --> DB
+    Agrobot["Agrobot"] -.->|"usuarios, campos, pronosticos"| DB
+    DB -.->|"outbox_events"| Sender["Servicio de envio"]
 ```
 
-La API y el worker comparten la base. `users`, `fields` y `weather_forecasts`
-son datos de Agrobot y este servicio solo los lee. `alerts` y `notifications`
-son propias y se crean con Alembic.
+Hay dos procesos: la **API**, que atiende los pedidos HTTP para crear alertas y leer notificaciones, y el **worker**,
+que cada una hora evalua las alertas y genera, de ser necesario, las notificaciones.
+Para hablarse entre si los dos leen y escriben la misma base de datos.
 
-## Modelo de datos
+En la base de datos tenemos las tablas:
 
-```mermaid
-erDiagram
-    users ||--o{ alerts : crea
-    fields ||--o{ alerts : recibe
-    alerts ||--o{ notifications : genera
-    users ||--o{ notifications : recibe
-    fields ||--o{ notifications : referencia
-    fields ||--o{ weather_forecasts : tiene
-    users }o--o{ fields : related_users
-```
+- `users`, `fields` y `weather_forecasts` que son de Agrobot. Este servicio solo las lee.
+- `alerts`, `notifications` y `outbox_events` son de este servicio y se crean
+  con las migraciones de Alembic.
 
-- Una alerta es unica por `(user_id, field_id, event_type)`.
-- Una notificacion es unica por `(alert_id, forecast_date)`.
-- Cada notificacion guarda el `probability` y el `threshold` del momento.
-- Si se borra una alerta, sus notificaciones se conservan con `alert_id = NULL`.
+En realidad a esas tablas le mockeamos datos, pero en produccion son externas y este servicio no las crea ni modifica.
 
-## Prueba rapida para el revisor
+## Primeros pasos
 
-Requisitos: Docker, Docker Compose y [uv](https://docs.astral.sh/uv/).
+Requisitos: Docker, Docker Compose y [uv](https://docs.astral.sh/uv/getting-started/installation/).
 
 ```bash
 cp .env.example .env
 uv sync --locked
 make start
+```
+
+`make start` levanta PostgreSQL, aplica las migraciones y levanta la API y el
+worker. La documentacion interactiva (Swagger) queda en
+`http://localhost:8000/docs`.
+
+### Ver el flujo completo
+
+```bash
 make demo
 ```
 
-`make start` construye la imagen, levanta PostgreSQL, crea las tablas externas
-locales, aplica las migraciones y levanta la API y el worker. Swagger queda en
-`http://localhost:8000/docs`.
+Carga datos de ejemplo, crea una alerta por la API, corre el worker y muestra
+las notificaciones y los eventos de outbox que se generaron. Despues corre el
+worker de nuevo para mostrar que no se duplica nada, es idempotente.
 
-`make demo` carga los datos demo si faltan, busca un usuario/campo con
-pronosticos suficientes, crea una alerta por la API, corre el worker, lista las
-notificaciones y vuelve a correr el worker para mostrar que no se duplican. No
-usa IDs fijos.
-
-Si queres probar a mano, el seed crea 100 usuarios y 200 campos. Para obtener un
-par valido:
+### Probarlo por tu cuenta
 
 ```bash
-docker compose exec db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+make sample
 ```
 
-```sql
-select u.id as user_id, f.id as field_id
-from users u
-join fields f on u.id = any(f.related_users)
-limit 1;
-```
+Muestra un usuario, uno de sus campos y los pronosticos de ese campo, junto con
+un `curl` para crear una alerta. Con eso podes:
 
-Despues podes crear una alerta con `curl` usando esos IDs.
+1. Crear la alerta con el `curl`.
+2. Correr una evaluacion con `make worker-once`.
+3. Ver las notificaciones en `GET /v1/notifications` desde Swagger, con el
+   mismo usuario en el header `X-User-Id`.
 
 ## API
 
-Todas las rutas de negocio requieren `X-User-Id` con un UUID existente. Si falta
-o es invalido responde `401`/`422`; si el usuario no existe, `401 Unknown user`.
+No hay login: el usuario se indica con el header `X-User-Id`, y tiene que
+existir en `users`.
 
-| Metodo | Ruta | Descripcion |
+| Metodo | URL | Que hace |
 | --- | --- | --- |
-| `POST` | `/v1/alerts` | Crea una alerta para un campo accesible. |
-| `GET` | `/v1/alerts` | Lista alertas propias con paginacion. |
-| `GET` | `/v1/alerts/{id}` | Obtiene una alerta propia. |
-| `PATCH` | `/v1/alerts/{id}` | Actualiza umbral y/o estado activo. |
-| `DELETE` | `/v1/alerts/{id}` | Elimina una alerta propia. |
-| `GET` | `/v1/notifications` | Lista notificaciones propias. |
+| `POST` | `/v1/alerts` | Crea una alerta para un campo del usuario. |
+| `GET` | `/v1/alerts` | Lista las alertas de los campos del usuario. |
+| `GET` | `/v1/alerts/{id}` | Devuelve una alerta. |
+| `PATCH` | `/v1/alerts/{id}` | Cambia el umbral o la activa/desactiva. |
+| `DELETE` | `/v1/alerts/{id}` | Borra una alerta. |
+| `GET` | `/v1/notifications` | Lista las notificaciones del usuario. |
 | `POST` | `/v1/notifications/read` | Marca notificaciones como leidas. |
-| `GET` | `/health/live` | Liveness. |
-| `GET` | `/health/ready` | Readiness con `SELECT 1`. |
 
-### Alertas
+Una alerta se crea indicando el campo, el evento y el umbral:
 
 ```json
 {
-  "field_id": "<field_id>",
-  "event_type": "rain",
-  "threshold": 60
+  "field_id": "9db92bf7-a281-4309-b204-a816f0647108",
+  "event_type": "frost",
+  "threshold": 80
 }
 ```
 
-- `event_type`: `frost`, `rain`, `hail`, `strong_wind` o `heat`.
-- `threshold`: entero entre 1 y 100.
-- El campo debe existir y el usuario debe estar en `field.related_users`.
-- Campo inexistente o inaccesible: `404 Field not found or not accessible`.
-- Alerta duplicada: `409 Conflict`.
+El evento puede ser `frost` (helada), `rain` (lluvia), `hail` (granizo),
+`strong_wind` (viento fuerte) o `heat` (calor). El umbral es la probabilidad
+minima, en porcentaje, a partir de la cual se avisa, que es un numero de 1 a 100.
 
-`GET /v1/alerts` acepta `limit` (1-100, default 50), `cursor`, `field_id`,
-`event_type` y `active`. La respuesta es `{"items": [...], "next_cursor": null}`.
-El cursor es opaco y se reenvia tal cual; uno invalido responde `422`.
+Errores posibles:
 
-`PATCH` acepta `threshold` y/o `active`, pero no `null` ni un body vacio.
-`DELETE` responde `204`.
-
-Las lecturas, ediciones y borrados validan solo que la alerta sea del usuario.
-El evaluador es quien vuelve a chequear el acceso actual al campo.
-
-### Notificaciones
-
-`GET /v1/notifications` acepta `limit`, `cursor`, `unread` y `field_id`.
-
-`POST /v1/notifications/read` recibe entre 1 y 100 IDs unicos:
-
-```json
-{"notification_ids": ["uuid-1", "uuid-2"]}
-```
-
-Solo marca notificaciones propias que esten sin leer.
+| Codigo | Cuando |
+| --- | --- |
+| `401` | Falta `X-User-Id` o el usuario no existe. |
+| `404` | El campo o la alerta no existe, o el usuario no tiene acceso. |
+| `409` | Ya hay una alerta para ese campo y evento. |
+| `422` | Algun dato del pedido es invalido. |
 
 ## Evaluacion
 
-El worker evalua periodicamente todas las alertas activas. Tambien puede correr
-un unico ciclo con `make worker-once`.
+En cada ciclo, el worker:
 
-```mermaid
-sequenceDiagram
-    participant W as Worker
-    participant DB as PostgreSQL
-    W->>DB: INSERT ... SELECT alertas + pronosticos
-    Note over DB: alerta activa<br/>usuario en related_users<br/>probability >= threshold<br/>forecast_date >= fecha local
-    DB-->>W: notificaciones nuevas
-    Note over DB: UNIQUE(alert_id, forecast_date)<br/>ON CONFLICT DO NOTHING
+1. Toma las alertas activas.
+2. Busca los pronosticos de ese campo para el evento en cuestion desde hoy en adelante.
+3. Por cada fecha cuya probabilidad alcanza el umbral, crea una notificacion
+   para cada usuario del campo, salvo que esa fecha ya se haya avisado.
+4. Por cada notificacion nueva, deja un evento en el outbox.
+
+Por ejemplo: un campo con 3 usuarios tiene una alerta de helada al 70%. El
+pronostico dice 80% para el jueves y 50% para el viernes. El worker crea 3
+notificaciones para el jueves, una por usuario, y ninguna para el viernes. En
+las corridas siguientes no vuelve a avisar para el jueves.
+
+## Outbox
+
+El envio real (WhatsApp, app, email) no esta en el alcance del take home creo.
+Para que dejar lista la integracion con otro servicio, cada notificacion nueva deja una fila en
+`outbox_events` con `event_type = notification.created` y un `payload` JSON con
+el usuario, el campo, el evento, la fecha, la probabilidad y el umbral.
+
+La notificacion y su evento se guardan juntos: si falla uno, no se guarda
+ninguno.
+
+El servicio que consume el outbox deberia leer los eventos pendientes y los marca como
+publicados:
+
+```sql
+select id, payload
+from outbox_events
+where published_at is null
+order by created_at, id
+limit 100
+for update skip locked;
+
+-- despues de enviarlos
+update outbox_events set published_at = now() where id = any(:ids);
 ```
-
-- Usa la fecha local del campo (`fields.timezone`), no la del servidor.
-- Incluye el dia actual (`forecast_date >= fecha local`).
-- Considera todos los pronosticos futuros disponibles.
-- Crea como maximo una notificacion por alerta y fecha.
-- Reintentos y evaluaciones concurrentes no duplican notificaciones.
-- Si el usuario perdio acceso al campo, no se generan notificaciones nuevas.
-
-La evaluacion es un solo `INSERT ... SELECT`; la idempotencia queda en la base,
-no en locks de aplicacion.
 
 ## Decisiones
 
-### Modelo y semantica
+### Producto
 
-- Todos los eventos se comparan con `probability >= threshold`. En esta version
-  no hay alertas por temperatura minima ni por velocidad de viento; el modelo es
-  `event_type + threshold`. Si se agrega otra metrica, conviene sumar un campo
-  `metric` u `operator` en vez de meter logica por evento en la evaluacion.
-- Una alerta es por usuario, campo y evento. No se permiten dos alertas iguales:
-  la creacion responde `409` y avisa que ya existe. Soportar dos umbrales para el
-  mismo campo/evento requeriria cambiar la unicidad y la semantica de notificacion.
-- El clima se vincula por `field_id`. El campo tiene latitud, longitud y zona
-  horaria; los pronosticos referencian ese campo. No hay una grilla separada ni
-  una ubicacion resuelta aparte.
-- La ventana de evaluacion es abierta: se toman todos los pronosticos futuros
-  disponibles, incluido hoy en la zona horaria del campo. No hay `window_days`
-  por alerta en esta version. Si se necesita limitar el horizonte, se agrega al
-  modelo de alerta sin cambiar la evaluacion de fondo.
+- **Umbral.** Todos los eventos se comparan como `probability >= threshold`.
+  No hay alertas por temperatura ni por velocidad de viento. Tendria sentido para mi que una alerta sea por, por ejemplo, "alta probabilidad de viento fuerte de >40km/h", pero para mi no esta en el alcance del take home, se podria agregar a futuro.
+- **Alerta por campo.** Decidi que el umbral es una decision sobre el campo y el
+  evento en cuestion, no que cada usuario tenga su propio umbral. Hay una sola alerta por `(campo, evento)`: todos
+  los usuarios del campo la ven, la editan y reciben sus avisos. Si se intenta
+  crear otra, responde `409` avisando que ya existe. Esta forma tambien permite que el worker haga una sola evaluacion por alerta, en vez de una por usuario, es mas facil de escalar y para mi una decision de producto razonable.
+- **Ventana.** Se evaluan todos los pronosticos futuros disponibles, incluido
+  hoy en la zona horaria del campo. Es decir, que si tenemos forecast del tiempo para los proximos 7 dias, el worker evalua los 7 dias. No hay un limite de dias configurable por alerta, aunque podria agregarse a futuro.
+- **Una notificacion por fecha.** Lluvia el viernes y lluvia el sabado son dos
+  notificaciones. Una fecha ya avisada no se vuelve a avisar, aunque el umbral
+  siga superado o el pronostico cambie.
+- **Bajas de probabilidad.** No se avisa cuando el riesgo baja. Para avisar cuando baja, habria que guardar el estado anterior de cada alerta y comparar con el nuevo, podria agregarse a futuro.
+- **Historial.** La notificacion guarda la probabilidad y el umbral del
+  momento.
+- **Acceso.** Se usa `fields.related_users` en cada evaluacion: quien deja de
+  estar en el campo deja de recibir avisos nuevos.
 
-### Deduplicacion y ciclo de vida
+### Tecnicas
 
-- Una notificacion es por alerta y fecha de pronostico. Una helada el viernes y
-  una helada el sabado son dos notificaciones distintas.
-- Mientras el umbral siga superado para la misma fecha, no se vuelve a notificar.
-  La unicidad `(alert_id, forecast_date)` evita spam por corridas repetidas.
-- No hay cooldown ni renotificacion configurable en esta version. Si se quiere
-  renotificar cada N horas, hay que cambiar la clave de unicidad y guardar el
-  estado de la alerta; queda como evolucion.
-- No se notifica cuando la probabilidad baja. Solo se notifica cuando se cumple
-  el umbral. Notificar una baja fuerte, del tipo "esto practicamente ya no
-  ocurre", es una regla de negocio futura y necesita otro evento/estado.
-- Si se borra una alerta, las notificaciones se conservan con `alert_id = NULL` y
-  mantienen el snapshot de probabilidad y umbral.
-
-### Notificaciones
-
-- "Notificar" en este challenge significa persistir la notificacion y exponerla
-  por API. No hay outbox, WhatsApp ni broker de mensajes.
-- El endpoint de marcar como leidas solo actualiza notificaciones propias que
-  esten sin leer y devuelve los IDs efectivamente marcados.
-
-### Escala y operacion
-
-- El volumen esperado es de miles de alertas, no cientos de miles. Las consultas
-  se paginan por usuario y la evaluacion es set-based, sin traer todo a memoria.
-- El worker corre como proceso aparte, con intervalo configurable por
-  `EVALUATION_INTERVAL_SECONDS` y soporte de `--once` para cron o ingesta.
-- Se puede correr mas de una instancia del worker: la unicidad y
-  `ON CONFLICT DO NOTHING` resuelven la concurrencia. No se usan advisory locks.
-- La frecuencia esperada es horaria o posterior a la ingesta meteorologica; el
-  intervalo por defecto es una hora.
-
-### Auth, datos y zona horaria
-
-- `X-User-Id` simula identidad. La autenticacion real de Agrobot queda fuera del
-  alcance del challenge.
-- `users`, `fields` y `weather_forecasts` son tablas externas. El target
-  `schema` y los tests crean versiones locales; `seed` carga datos demo. En
-  produccion se asume que Agrobot las mantiene.
-- No se administran usuarios, campos ni pronosticos desde esta API.
-- La zona horaria sale de `fields.timezone`; el dia local del campo es el que
-  define si un pronostico esta en la ventana.
+- **Que es notificar.** Guardar la notificacion, exponerla por API y dejar un
+  evento en el outbox. El envio por WhatsApp u otro canal queda fuera como dice la consigna.
+- **Campo y clima.** El pronostico se vincula al campo por `field_id`. El campo
+  tiene latitud, longitud y zona horaria.
+- **Zona horaria.** El "hoy" es el dia local del campo (`fields.timezone`), no
+  el del servidor o UTC, para no errarle en el dia del pronostico.
+- **Worker aparte.** Corre en un proceso separado de la API, con intervalo
+  configurable. `make worker-once` corre un solo ciclo, util para dispararlo
+  desde un cron o despues de cargar pronosticos si se tuviera un orquestrador.
+- **Varias instancias.** De necesitarse, se pueden correr varios workers a la vez.
+  Se rechaza notificaciones repetidas (`UNIQUE` + `ON CONFLICT DO NOTHING`), asi
+  que no hacen falta locks.
+- **Auth y datos externos.** `X-User-Id` simula la identidad. Las tablas de
+  Agrobot se crean localmente solo para desarrollo y tests.
 
 ## Configuracion
 
-Las variables se leen desde `.env` (ver `.env.example`).
+Las variables se leen desde `.env` y `.env.example` tiene todas con valores para
+desarrollo. Estas en particular son las mas importantes para el comportamiento del worker:
 
 | Variable | Default | Uso |
 | --- | --- | --- |
-| `ENVIRONMENT` | `local` | `local`, `test` o `production`. |
-| `LOG_LEVEL` | `INFO` | Nivel de logging. |
-| `API_PORT` | `8000` | Puerto de la API. |
-| `POSTGRES_DB` | `agroclimate` | Base de desarrollo. |
-| `POSTGRES_USER` | `agroclimate` | Usuario de PostgreSQL. |
-| `POSTGRES_PASSWORD` | `local-dev-password` | Password local. |
-| `POSTGRES_HOST` | `localhost` | Host de PostgreSQL. |
-| `POSTGRES_PORT` | `5432` | Puerto de PostgreSQL. |
-| `EVALUATION_INTERVAL_SECONDS` | `3600` | Intervalo del worker. |
-| `EVALUATION_TIMEOUT_SECONDS` | `30` | Timeout de cada ciclo. |
-
-En `production` los logs son JSON; en `local` y `test` son legibles para consola.
-El middleware sanea `X-Request-ID`, genera uno si falta y lo devuelve en la
-respuesta.
+| `EVALUATION_INTERVAL_SECONDS` | `3600` | Cada cuanto evalua el worker. |
+| `EVALUATION_TIMEOUT_SECONDS` | `30` | Tiempo maximo de cada evaluacion. |
 
 ## Tests y calidad
 
 ```bash
-make test        # pytest contra una base PostgreSQL aislada
-make coverage    # cobertura en terminal
-make check       # Ruff format + Ruff lint + Mypy
+make check       # ruff format, ruff lint y mypy
+make test        # pytest unitarios e integracion
+make coverage    # falla por debajo de 90%
 ```
 
-Los tests de integracion crean `agroclimate_test`, aplican migraciones y usan
-transacciones con rollback. Se niegan a correr contra un PostgreSQL no local o
-fuera de `ENVIRONMENT=local|test`. Los tests de API usan `httpx2` con ASGI.
-
-## Operacion
-
-```bash
-make start          # build + PostgreSQL + tablas externas + migraciones + API/worker
-make stop           # baja los contenedores
-make db             # solo PostgreSQL
-make schema         # PostgreSQL + tablas externas locales
-make migrate        # schema + migraciones
-make seed           # schema + datos demo
-make demo           # datos demo + alerta + worker + idempotencia
-make worker-once    # ejecuta una evaluacion
-docker compose logs -f api worker
-```
-
-`schema` crea los stand-ins locales de `users`, `fields` y `weather_forecasts`.
-Las migraciones necesitan esas tablas porque `alerts` y `notifications` tienen
-foreign keys contra ellas.
-
-Si `make test` no puede preparar PostgreSQL, verifica que Docker este corriendo,
-que `.env` tenga credenciales validas y que el usuario pueda crear bases.
+Los tests de integracion crean una db `agroclimate_test`, aplican las migraciones y
+envuelven cada test en una transaccion con rollback. No corren si PostgreSQL no es local.
 
 ## Estructura
 
@@ -286,13 +217,14 @@ src/agroclimate/
 ├── api/                  # health, dependencias, alerts y notifications
 ├── core/                 # settings y observabilidad
 ├── db/                   # modelos, sesion, settings y migraciones
-├── services/evaluation/  # evaluacion de alertas
+├── services/evaluation/  # evaluacion de alertas y outbox
 ├── main.py               # app factory
 └── worker.py             # loop del worker
 
 scripts/
 ├── create_external_tables.py  # tablas externas locales
-├── demo.py                    # prueba end-to-end para el revisor
+├── demo.py                    # flujo completo para probarlo
+├── sample.py                  # usuario, campo y pronosticos de ejemplo
 └── seed_db.py                 # datos demo locales
 
 tests/                    # unitarios e integracion
@@ -301,8 +233,7 @@ tests/                    # unitarios e integracion
 ## Trabajo futuro
 
 - Integrar la autenticacion real de Agrobot.
-- Agregar `window_days` configurable por alerta.
-- Implementar cooldown y renotificacion configurable.
-- Notificar bajas fuertes de probabilidad o cambios relevantes del pronostico.
-- Agregar entrega de notificaciones por WhatsApp u otro canal.
-- Incorporar metricas y tracing.
+- Ventana de dias configurable por alerta.
+- Avisar cuando el riesgo baja del umbral.
+- Alertas no solo por probabilidad, sino por la magnitud del evento (temperatura, velocidad de viento, etc).
+- Un servicio que consuma los eventos del outbox y envie whatsApp, email, etc.
