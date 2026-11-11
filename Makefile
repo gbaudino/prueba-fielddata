@@ -1,4 +1,4 @@
-.PHONY: sync check test coverage build db schema migrate seed start stop reset demo worker-once fix
+.PHONY: sync check test coverage build db schema migrate seed start stop reset sample demo worker-once fix
 
 sync:
 	uv sync --locked
@@ -42,6 +42,9 @@ stop:
 
 reset:
 	docker compose down -v
+
+sample: seed
+	uv run python -m scripts.sample
 
 demo: seed
 	uv run python -m scripts.demo
