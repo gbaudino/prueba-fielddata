@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.2.0 (2026-11-11)
+
+### Bug Fixes
+
+- **seed**: Make seeding re-runnable and use 2 to 4 users per field
+  ([`190205f`](https://github.com/gbaudino/prueba-fielddata/commit/190205f6deb1c6ca9fe0fa4198f03d75c33cad69))
+
+### Features
+
+- **alerts**: Share alerts per field and write notifications to an outbox
+  ([`38cff97`](https://github.com/gbaudino/prueba-fielddata/commit/38cff97b8155206618d1a74142931aa5f5b41593))
+
+
 ## v1.1.0 (2026-11-10)
 
 ### Bug Fixes
