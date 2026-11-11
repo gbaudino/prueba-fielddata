@@ -1,20 +1,15 @@
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import (
     Select,
-    SmallInteger,
-    String,
     delete,
-    func,
-    literal,
     select,
     tuple_,
     update,
 )
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.types import Uuid
 
 from agroclimate.api.v1.alerts.schemas import AlertCreate, AlertUpdate
 from agroclimate.api.v1.pagination import decode_cursor, encode_cursor
@@ -37,47 +32,38 @@ async def create_alert(
     user_id: UUID,
     payload: AlertCreate,
 ) -> Alert:
-    source = select(
-        literal(uuid4(), type_=Uuid(as_uuid=True)),
-        Field.id,
-        literal(payload.event_type.value, type_=String(32)),
-        literal(payload.threshold, type_=SmallInteger()),
-        literal(user_id, type_=Uuid(as_uuid=True)),
-    ).where(
-        Field.id == payload.field_id,
-        Field.related_users.contains([user_id]),
+    has_access = await session.scalar(
+        _accessible_fields(user_id)
+        .where(Field.id == payload.field_id)
+        .exists()
+        .select()
     )
+    if not has_access:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Field not found or not accessible",
+        )
+
     statement = (
         insert(Alert)
-        .from_select(
-            ["id", "field_id", "event_type", "threshold", "created_by"],
-            source,
+        .values(
+            created_by=user_id,
+            field_id=payload.field_id,
+            event_type=payload.event_type,
+            threshold=payload.threshold,
         )
         .on_conflict_do_nothing(constraint="uq_alerts_field_id_event_type")
         .returning(Alert)
     )
-    alert = (await session.execute(statement)).scalar_one_or_none()
-
+    alert = await session.scalar(statement)
     if alert is None:
-        has_access = await session.scalar(
-            _accessible_fields(user_id)
-            .where(Field.id == payload.field_id)
-            .exists()
-            .select()
-        )
         await session.rollback()
-        if not has_access:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Field not found or not accessible",
-            )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An alert already exists for this field and event",
         )
 
     await session.commit()
-    await session.refresh(alert)
     return alert
 
 
@@ -150,9 +136,7 @@ async def update_alert(
             Alert.id == alert_id,
             Alert.field_id.in_(_accessible_fields(user_id)),
         )
-        .values(
-            **payload.model_dump(exclude_unset=True), updated_at=func.now()
-        )
+        .values(**payload.model_dump(exclude_unset=True))
         .returning(Alert)
     )
     alert = await session.scalar(statement)
