@@ -25,7 +25,6 @@ async def readiness(session: SessionDep) -> dict[str, str]:
         async with asyncio.timeout(READINESS_TIMEOUT_SECONDS):
             await session.execute(text("SELECT 1"))
     except (SQLAlchemyError, OSError) as exc:
-        # TimeoutError is a subclass of OSError.
         logger.warning(
             "database_readiness_check_failed",
             error=type(exc).__name__,

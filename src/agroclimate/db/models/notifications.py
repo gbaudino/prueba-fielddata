@@ -27,7 +27,7 @@ class Notification(Base):
             "probability BETWEEN 1 AND 100", name="probability_range"
         ),
         CheckConstraint("threshold BETWEEN 1 AND 100", name="threshold_range"),
-        UniqueConstraint("alert_id", "forecast_date"),
+        UniqueConstraint("alert_id", "user_id", "forecast_date"),
         Index("ix_notifications_field_id", "field_id"),
         Index(
             "ix_notifications_user_created_id",

@@ -60,6 +60,9 @@ strict = true
 source = ["src/agroclimate"]
 branch = true
 
+[tool.coverage.report]
+fail_under = 90
+
 [tool.semantic_release]
 commit_parser = "conventional"
 allow_zero_version = true

@@ -29,7 +29,7 @@ repos:
 
       - id: mypy
         name: Mypy
-        entry: uv run mypy src tests
+        entry: uv run mypy src tests scripts
         language: system
         pass_filenames: false
         types: [python]

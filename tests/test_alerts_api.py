@@ -52,12 +52,14 @@ async def test_unknown_user_is_rejected(
         assert response.json()["detail"] == "Unknown user"
 
 
-async def test_create_alert_and_reject_duplicate(
+async def test_create_alert_and_reject_duplicate_for_the_field(
     api_client: httpx2.AsyncClient,
     sample_users: list[User],
     sample_fields: list[Field],
 ) -> None:
-    headers = {"X-User-Id": str(sample_users[0].id)}
+    owner_id = str(sample_users[0].id)
+    owner_headers = {"X-User-Id": owner_id}
+    other_headers = {"X-User-Id": str(sample_users[1].id)}
     payload = {
         "field_id": str(sample_fields[0].id),
         "event_type": EventType.RAIN.value,
@@ -65,15 +67,16 @@ async def test_create_alert_and_reject_duplicate(
     }
 
     created = await api_client.post(
-        "/v1/alerts", headers=headers, json=payload
+        "/v1/alerts", headers=owner_headers, json=payload
     )
     duplicate = await api_client.post(
-        "/v1/alerts", headers=headers, json=payload
+        "/v1/alerts", headers=other_headers, json=payload
     )
 
     assert created.status_code == 201
     assert created.json()["threshold"] == 60
     assert created.json()["active"] is True
+    assert created.json()["created_by"] == owner_id
     assert duplicate.status_code == 409
 
 
@@ -96,16 +99,16 @@ async def test_create_alert_requires_field_access(
     assert response.json()["detail"] == "Field not found or not accessible"
 
 
-async def test_alert_crud_and_owner_isolation(
+async def test_alert_crud_uses_field_access(
     api_client: httpx2.AsyncClient,
     sample_users: list[User],
     sample_fields: list[Field],
 ) -> None:
-    owner_headers = {"X-User-Id": str(sample_users[0].id)}
-    other_headers = {"X-User-Id": str(sample_users[1].id)}
+    first_headers = {"X-User-Id": str(sample_users[0].id)}
+    second_headers = {"X-User-Id": str(sample_users[1].id)}
     created = await api_client.post(
         "/v1/alerts",
-        headers=owner_headers,
+        headers=first_headers,
         json={
             "field_id": str(sample_fields[0].id),
             "event_type": "hail",
@@ -115,9 +118,15 @@ async def test_alert_crud_and_owner_isolation(
     assert created.status_code == 201
     alert_id = created.json()["id"]
 
+    fetched = await api_client.get(
+        f"/v1/alerts/{alert_id}", headers=second_headers
+    )
+    assert fetched.status_code == 200
+    assert fetched.json()["id"] == alert_id
+
     updated = await api_client.patch(
         f"/v1/alerts/{alert_id}",
-        headers=owner_headers,
+        headers=second_headers,
         json={
             "threshold": 85,
             "active": False,
@@ -127,39 +136,46 @@ async def test_alert_crud_and_owner_isolation(
     assert updated.json()["threshold"] == 85
     assert updated.json()["active"] is False
 
-    fetched = await api_client.get(
-        f"/v1/alerts/{alert_id}", headers=owner_headers
+    field_one_alert = await api_client.post(
+        "/v1/alerts",
+        headers=second_headers,
+        json={
+            "field_id": str(sample_fields[1].id),
+            "event_type": "rain",
+            "threshold": 60,
+        },
     )
-    assert fetched.status_code == 200
-    assert fetched.json()["id"] == alert_id
+    assert field_one_alert.status_code == 201
+    field_one_alert_id = field_one_alert.json()["id"]
 
     other_get = await api_client.get(
-        f"/v1/alerts/{alert_id}", headers=other_headers
+        f"/v1/alerts/{field_one_alert_id}", headers=first_headers
     )
     other_patch = await api_client.patch(
-        f"/v1/alerts/{alert_id}",
-        headers=other_headers,
+        f"/v1/alerts/{field_one_alert_id}",
+        headers=first_headers,
         json={"threshold": 90},
     )
     other_delete = await api_client.delete(
-        f"/v1/alerts/{alert_id}", headers=other_headers
+        f"/v1/alerts/{field_one_alert_id}", headers=first_headers
     )
     assert other_get.status_code == 404
     assert other_patch.status_code == 404
     assert other_delete.status_code == 404
 
     deleted = await api_client.delete(
-        f"/v1/alerts/{alert_id}", headers=owner_headers
+        f"/v1/alerts/{alert_id}", headers=second_headers
     )
     assert deleted.status_code == 204
 
 
-async def test_alert_list_uses_keyset_pagination_and_user_scope(
+async def test_alert_list_uses_keyset_pagination_and_field_scope(
     api_client: httpx2.AsyncClient,
     sample_users: list[User],
     sample_fields: list[Field],
 ) -> None:
-    headers = {"X-User-Id": str(sample_users[0].id)}
+    first_headers = {"X-User-Id": str(sample_users[0].id)}
+    second_headers = {"X-User-Id": str(sample_users[1].id)}
     for field_id, event_type in (
         (sample_fields[0].id, "rain"),
         (sample_fields[0].id, "frost"),
@@ -167,7 +183,7 @@ async def test_alert_list_uses_keyset_pagination_and_user_scope(
     ):
         response = await api_client.post(
             "/v1/alerts",
-            headers=headers,
+            headers=first_headers,
             json={
                 "field_id": str(field_id),
                 "event_type": event_type,
@@ -176,7 +192,21 @@ async def test_alert_list_uses_keyset_pagination_and_user_scope(
         )
         assert response.status_code == 201
 
-    first_page = await api_client.get("/v1/alerts?limit=2", headers=headers)
+    field_one_alert = await api_client.post(
+        "/v1/alerts",
+        headers=second_headers,
+        json={
+            "field_id": str(sample_fields[1].id),
+            "event_type": "rain",
+            "threshold": 50,
+        },
+    )
+    assert field_one_alert.status_code == 201
+    field_one_alert_id = field_one_alert.json()["id"]
+
+    first_page = await api_client.get(
+        "/v1/alerts?limit=2", headers=first_headers
+    )
     assert first_page.status_code == 200
     assert len(first_page.json()["items"]) == 2
     cursor = first_page.json()["next_cursor"]
@@ -184,19 +214,28 @@ async def test_alert_list_uses_keyset_pagination_and_user_scope(
 
     second_page = await api_client.get(
         "/v1/alerts",
-        headers=headers,
+        headers=first_headers,
         params={"limit": 2, "cursor": cursor},
     )
     assert second_page.status_code == 200
     assert len(second_page.json()["items"]) == 1
     assert second_page.json()["next_cursor"] is None
-
-    other_user_page = await api_client.get(
-        "/v1/alerts",
-        headers={"X-User-Id": str(sample_users[1].id)},
+    first_page_items = first_page.json()["items"]
+    second_page_items = second_page.json()["items"]
+    assert all(
+        item["field_id"] == str(sample_fields[0].id)
+        for item in [*first_page_items, *second_page_items]
     )
-    assert other_user_page.status_code == 200
-    assert other_user_page.json()["items"] == []
+
+    shared_field_page = await api_client.get(
+        "/v1/alerts",
+        headers=second_headers,
+    )
+    assert shared_field_page.status_code == 200
+    assert len(shared_field_page.json()["items"]) == 4
+    assert field_one_alert_id in {
+        item["id"] for item in shared_field_page.json()["items"]
+    }
 
 
 async def test_alert_validation_and_invalid_cursor(

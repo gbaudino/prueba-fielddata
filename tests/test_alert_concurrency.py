@@ -58,7 +58,7 @@ async def test_concurrent_alert_creates_keep_the_unique_constraint(
             alert_count = await session.scalar(
                 select(func.count())
                 .select_from(Alert)
-                .where(Alert.user_id == user.id)
+                .where(Alert.field_id == field.id)
             )
 
         assert sorted(results) == [201, 409]
@@ -66,7 +66,7 @@ async def test_concurrent_alert_creates_keep_the_unique_constraint(
     finally:
         async with postgres_engine.begin() as connection:
             await connection.execute(
-                delete(Alert).where(Alert.user_id == user.id)
+                delete(Alert).where(Alert.field_id == field.id)
             )
             await connection.execute(delete(Field).where(Field.id == field.id))
             await connection.execute(delete(User).where(User.id == user.id))

@@ -4,12 +4,13 @@ import asyncio
 import random
 from collections.abc import Iterable, Iterator, Sequence
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 import structlog
 from sqlalchemy import Table, func, insert, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +26,9 @@ FORECAST_DAYS = 5
 RANDOM_SEED = 42
 INSERT_BATCH_SIZE = 2_000
 DEMO_TIMEZONE = "America/Argentina/Cordoba"
+USER_TABLE = cast(Table, User.__table__)
+FIELD_TABLE = cast(Table, Field.__table__)
+FORECAST_TABLE = cast(Table, WeatherForecast.__table__)
 logger = structlog.get_logger(__name__)
 
 
@@ -56,7 +60,7 @@ def build_fields(
 ) -> list[dict[str, Any]]:
     fields: list[dict[str, Any]] = []
     for index in range(FIELD_COUNT):
-        related_user_count = rng.randint(1, min(4, len(user_ids)))
+        related_user_count = rng.randint(2, min(4, len(user_ids)))
         related_users = rng.sample(list(user_ids), related_user_count)
         fields.append(
             {
@@ -105,6 +109,11 @@ async def count_rows(session: AsyncSession, table: Table) -> int:
     return int(result or 0)
 
 
+async def load_fields(session: AsyncSession) -> list[dict[str, Any]]:
+    field_ids = (await session.scalars(select(Field.id))).all()
+    return [{"id": field_id} for field_id in field_ids]
+
+
 async def seed_database() -> tuple[int, int, int]:
     app_settings = get_app_settings()
     if app_settings.environment != "local":
@@ -125,34 +134,42 @@ async def seed_database() -> tuple[int, int, int]:
             await connection.run_sync(create_external_tables)
 
         async with session_factory() as session, session.begin():
-            existing_counts = (
-                await count_rows(session, User.__table__),
-                await count_rows(session, Field.__table__),
-                await count_rows(session, WeatherForecast.__table__),
-            )
-            if any(existing_counts):
-                logger.info(
-                    "demo_data_already_present",
-                    users=existing_counts[0],
-                    fields=existing_counts[1],
-                    weather_forecasts=existing_counts[2],
+            existing_users = await count_rows(session, USER_TABLE)
+            existing_fields = await count_rows(session, FIELD_TABLE)
+            if (existing_users == 0) != (existing_fields == 0):
+                raise RuntimeError(
+                    "Demo data is partially present. Run `make reset`."
                 )
-                return existing_counts
 
-            rng = random.Random(RANDOM_SEED)
-            users = build_users()
-            fields = build_fields([user["id"] for user in users], rng)
-
-            await session.execute(insert(User.__table__), users)
-            await session.execute(insert(Field.__table__), fields)
+            if existing_users == 0:
+                rng = random.Random(RANDOM_SEED)
+                users = build_users()
+                fields = build_fields([user["id"] for user in users], rng)
+                await session.execute(insert(USER_TABLE), users)
+                await session.execute(insert(FIELD_TABLE), fields)
+            else:
+                fields = await load_fields(session)
 
             forecast_rows = build_forecasts(fields)
-            forecast_count = 0
             for batch in chunks(forecast_rows, INSERT_BATCH_SIZE):
-                await session.execute(insert(WeatherForecast.__table__), batch)
-                forecast_count += len(batch)
+                statement = (
+                    pg_insert(FORECAST_TABLE)
+                    .values(batch)
+                    .on_conflict_do_nothing(
+                        index_elements=[
+                            "field_id",
+                            "event_type",
+                            "forecast_date",
+                        ]
+                    )
+                )
+                await session.execute(statement)
 
-        return USER_COUNT, FIELD_COUNT, forecast_count
+            return (
+                await count_rows(session, USER_TABLE),
+                await count_rows(session, FIELD_TABLE),
+                await count_rows(session, FORECAST_TABLE),
+            )
     finally:
         await engine.dispose()
 
