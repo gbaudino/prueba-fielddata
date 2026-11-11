@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.2.1 (2026-11-11)
+
+### Bug Fixes
+
+- **evaluation**: Skip related users missing from users and add some context in comments
+  ([`03c514b`](https://github.com/gbaudino/prueba-fielddata/commit/03c514bac29efb938ccd85d039f2f5609664a4ca))
+
+
 ## v1.2.0 (2026-11-11)
 
 ### Bug Fixes

@@ -1,6 +1,6 @@
 [project]
 name = "agroclimate"
-version = "1.2.0"
+version = "1.2.1"
 description = "Weather alert system for agriculture"
 readme = "README.md"
 authors = [
