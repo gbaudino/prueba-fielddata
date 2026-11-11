@@ -53,7 +53,7 @@ async def test_alert_flow_generates_a_queryable_notification(
         postgres_session,
         evaluated_at=evaluated_at,
     )
-    # Both users of the field are notified.
+    # check both users of the field are notified
     assert created_notifications == 2
 
     response = await api_client.get(

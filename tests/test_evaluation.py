@@ -186,7 +186,6 @@ async def test_uses_the_local_date_of_the_field(
     )
     await postgres_session.flush()
 
-    # 23:00 UTC on Nov 9 is already Nov 10 in Kiritimati (UTC+14).
     created = await evaluate_alerts(
         postgres_session,
         evaluated_at=datetime(2026, 11, 9, 23, 0, tzinfo=UTC),
@@ -257,8 +256,6 @@ async def test_creates_more_notifications_than_bind_parameters_allow(
     postgres_session: AsyncSession,
     sample_users: list[User],
 ) -> None:
-    # asyncpg accepts at most 32767 bind parameters per statement, so the
-    # evaluation must not bind values per created notification.
     field_count = 4_000
     users = [user.id for user in sample_users]
     await postgres_session.execute(
